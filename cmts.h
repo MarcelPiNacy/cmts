@@ -43,7 +43,7 @@ typedef uint32_t cmts_counter_t;
 
 enum
 {
-	CMTS_MAX_TASKS = 65536 * 256
+	CMTS_MAX_TASKS = 1 << 24
 };
 
 extern "C"

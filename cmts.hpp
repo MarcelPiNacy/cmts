@@ -131,9 +131,9 @@ namespace cmts
 
 
 
-	inline counter_t new_counter()
+	inline counter_t new_counter(const uint32_t start_value)
 	{
-		return static_cast<counter_t>(cmts_new_counter());
+		return static_cast<counter_t>(cmts_new_counter(start_value));
 	}
 
 	inline void increment(const counter_t counter)
@@ -175,9 +175,9 @@ namespace cmts
 
 
 
-	inline uint32_t max_tasks()
+	constexpr uint32_t max_tasks()
 	{
-		return cmts_max_tasks();
+		return CMTS_MAX_TASKS;
 	}
 
 	inline uint32_t processor_count()

@@ -570,7 +570,7 @@ static void __stdcall fiber_main(void* param)
 static DWORD __stdcall thread_main(void* param)
 {
 	processor_index = (u32)param;
-	root_fiber = ConvertThreadToFiber(nullptr);
+	root_fiber = ConvertThreadToFiberEx(nullptr, FIBER_FLAG_FLOAT_SWITCH);
 	while (true)
 	{
 		if (!should_continue.unsafe)
