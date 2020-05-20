@@ -170,7 +170,7 @@ namespace cmts
 
 	inline void dispatch(const function_pointer_t task_function, void* param, const priority_level_t priority_level, const counter_t counter)
 	{
-		cmts_dispatch_with_fence(task_function, param, static_cast<uint8_t>(priority_level), static_cast<cmts_counter_t>(counter));
+		cmts_dispatch_with_counter(task_function, param, static_cast<uint8_t>(priority_level), static_cast<cmts_counter_t>(counter));
 	}
 
 
