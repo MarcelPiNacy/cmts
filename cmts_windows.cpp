@@ -107,7 +107,7 @@ static thread_local u32							current_fiber;
 
 
 #ifdef _DEBUG
-#define cmts_assert(expression, message) if (!(expression)) cmts_assertion_handler(message "\n")
+#define cmts_assert(expression, message) if (!(expression)) cmts_assertion_handler("CMTS:\t" message "\n")
 
 inline_never
 static void cmts_assertion_handler(cstring message)
@@ -133,7 +133,46 @@ union alignas(64) flag_type
 
 static flag_type should_continue = {};
 
-struct alignas(64) shared_queue_256
+struct alignas(64) locked_queue_256
+{
+	atomic_flag lock = ATOMIC_FLAG_INIT;
+	u8 head, tail;
+	u32 values[256];
+
+	bool store(u32 value)
+	{
+		while (lock.test_and_set(memory_order_acquire))
+			_mm_pause();
+		const u8 n = head + 1;
+		if (n == tail)
+		{
+			lock.clear(memory_order_release);
+			return false;
+		}
+		values[head] = value;
+		head = n;
+		lock.clear(memory_order_release);
+		return true;
+	}
+
+	pair<bool, u32> fetch()
+	{
+		while (lock.test_and_set(memory_order_acquire))
+			_mm_pause();
+		const u32 n = tail;
+		if (head == n)
+		{
+			lock.clear(memory_order_release);
+			return pair<bool, u32>();
+		}
+		++tail;
+		const u32 r = values[n];
+		lock.clear(memory_order_release);
+		return pair<bool, u32>(true, r);
+	}
+};
+
+struct alignas(64) lockfree_queue_256
 {
 	struct control_block
 	{
@@ -178,7 +217,9 @@ struct alignas(64) shared_queue_256
 	}
 };
 
-struct alignas(64) sharded_queue
+using queue_shard_type = lockfree_queue_256;
+
+struct alignas(64) lockfree_sharded_queue //BROKEN
 {
 	struct control_block
 	{
@@ -186,23 +227,26 @@ struct alignas(64) sharded_queue
 	};
 
 	atomic<control_block> ctrl = {};
-	shared_queue_256* queues = nullptr;
+	queue_shard_type* queues = nullptr;
+	u32 mod_mask;
 
 	void initialize(u32 capacity)
 	{
-		queues = (shared_queue_256*)VirtualAlloc(nullptr, capacity * sizeof(shared_queue_256), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		const u32 n = capacity / 256;
+		this->mod_mask = n - 1;
+		queues = (queue_shard_type*)VirtualAlloc(nullptr, n * sizeof(queue_shard_type), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	}
 
 	void finalize()
 	{
 		VirtualFree(queues, 0, MEM_RELEASE);
-		new (this) sharded_queue();
+		new (this) lockfree_sharded_queue();
 	}
 
 	bool store(u32 value)
 	{
 		control_block c, nc;
-		
+
 		while (true)
 		{
 			c = ctrl.load(memory_order_acquire);
@@ -249,12 +293,67 @@ struct alignas(64) sharded_queue
 	}
 };
 
+struct alignas(64) locked_sharded_queue
+{
+	atomic_flag lock = ATOMIC_FLAG_INIT;
+	u32 head, tail;
+	u32 mod_mask;
+	queue_shard_type* queues = nullptr;
+
+	void initialize(u32 capacity)
+	{
+		const u32 n = capacity / 256;
+		this->mod_mask = n - 1;
+		queues = (queue_shard_type*)VirtualAlloc(nullptr, n * sizeof(queue_shard_type), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	}
+
+	void finalize()
+	{
+		VirtualFree(queues, 0, MEM_RELEASE);
+		new (this) lockfree_sharded_queue();
+	}
+
+	bool store(u32 value)
+	{
+		while (lock.test_and_set(memory_order_acquire))
+			_mm_pause();
+
+		const u8 n = (head + 1) & mod_mask;
+		if (n == tail)
+		{
+			lock.clear(memory_order_release);
+			return false;
+		}
+		const auto r = queues[(u16)head].store(value);
+		head = n;
+		lock.clear(memory_order_release);
+		return r;
+	}
+
+	pair<bool, u32> fetch()
+	{
+		while (lock.test_and_set(memory_order_acquire))
+			_mm_pause();
+		const u32 n = tail;
+		if (head == n)
+		{
+			lock.clear(memory_order_release);
+			return pair<bool, u32>();
+		}
+		tail = (tail + 1) & mod_mask;
+		const auto r = queues[(u16)n].fetch();
+		lock.clear(memory_order_release);
+		return r;
+	}
+};
+
+using sharded_queue = locked_sharded_queue;
+
 struct alignas(64) fiber_synchronization_state
 {
 	struct alignas(8) wait_list_control_block
 	{
-		u32 head;
-		u32 generation;
+		u32 head, generation;
 	};
 
 	u32 fence_next = (u32)-1;
@@ -353,6 +452,28 @@ alignas(64) static sharded_queue				queues[4];
 //!@region thread-shared state group 2
 
 
+
+inline_always
+static u32 timestamp_frequency()
+{
+	LARGE_INTEGER i;
+	QueryPerformanceFrequency(&i);
+	return (u32)i.LowPart;
+}
+
+inline_always
+static u32 timestamp()
+{
+	LARGE_INTEGER i;
+	QueryPerformanceCounter(&i);
+	return (u32)i.LowPart;
+}
+
+inline_always
+static u32 timestamp_ns()
+{
+	return (timestamp() * 1000'000'000) / timestamp_frequency();
+}
 
 inline_never
 static void conditionally_exit_thread()
@@ -498,17 +619,40 @@ static void push_fiber(u32 fiber, u8 priority)
 inline_always
 static u32 fetch_fiber()
 {
+	u32 threshold = 64;
+	const u32 start = timestamp_ns();
+	u32 last = start;
+
 	while (true)
 	{
 		if (!should_continue.unsafe)
 			conditionally_exit_thread();
+
 		for (auto& q : queues)
 		{
 			const auto r = q.fetch();
 			if (r.first)
 				return r.second;
 		}
-		_mm_pause();
+
+		const u32 now = timestamp_ns();
+		if (now - last < threshold)
+		{
+			_mm_pause();
+		}
+		else
+		{
+			if (now - start < 1024)
+			{
+				SwitchToThread();
+				last = now;
+				threshold = (threshold * 3) / 4;
+			}
+			else
+			{
+				Sleep(1);
+			}
+		}
 	}
 }
 
@@ -895,6 +1039,6 @@ extern "C"
 static_assert(atomic<bool>::is_always_lock_free);
 static_assert(atomic<u32>::is_always_lock_free);
 static_assert(atomic<pool_control_block>::is_always_lock_free);
-static_assert(atomic<shared_queue_256::control_block>::is_always_lock_free);
-static_assert(atomic<sharded_queue::control_block>::is_always_lock_free);
+static_assert(atomic<lockfree_queue_256::control_block>::is_always_lock_free);
+static_assert(atomic<lockfree_sharded_queue::control_block>::is_always_lock_free);
 static_assert(atomic<fiber_synchronization_state::wait_list_control_block>::is_always_lock_free);
