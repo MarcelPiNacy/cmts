@@ -38,12 +38,12 @@ namespace cmts
 	
 	enum class fence_t : cmts_fence_t
 	{
-		nil = (uint32_t)-1
+		nil = (cmts_fence_t)-1
 	};
 
 	enum class counter_t : cmts_counter_t
 	{
-		nil = (uint32_t)-1
+		nil = (cmts_counter_t)-1
 	};
 
 	enum class priority_level_t : uint8_t
