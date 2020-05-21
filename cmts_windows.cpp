@@ -1,29 +1,29 @@
 /*
-BSD 2-Clause License
-
-Copyright (c) 2020, Marcel Pi Nacy
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	BSD 2-Clause License
+	
+	Copyright (c) 2020, Marcel Pi Nacy
+	All rights reserved.
+	
+	Redistribution and use in source and binary forms, with or without
+	modification, are permitted provided that the following conditions are met:
+	
+	1. Redistributions of source code must retain the above copyright notice, this
+	   list of conditions and the following disclaimer.
+	
+	2. Redistributions in binary form must reproduce the above copyright notice,
+	   this list of conditions and the following disclaimer in the documentation
+	   and/or other materials provided with the distribution.
+	
+	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 
@@ -382,8 +382,9 @@ struct fence_state
 	union
 	{
 		atomic_bool flag;
-		bool flag_unsafe;
+		u8 flag_unsafe;
 	};
+	u32 generation;
 	u32 owning_fiber;
 	u32 pool_next;
 
@@ -407,6 +408,7 @@ struct counter_state
 		atomic<u32> counter;
 		u32 counter_unsafe;
 	};
+	u32 generation;
 	u32 owning_fiber;
 	u32 pool_next;
 
@@ -452,6 +454,21 @@ alignas(64) static sharded_queue				queues[4];
 //!@region thread-shared state group 2
 
 
+
+inline_always
+static u64 make_user_handle(u32 value, u32 generation)
+{
+	return (u64)((u64)value | ((u64)generation << 32));
+}
+
+inline_always
+static pair<u32, u32> break_user_handle(u64 handle)
+{
+	pair<u32, u32> r;
+	r.first = (u32)handle;
+	r.second = (u32)(handle >> 32);
+	return r;
+}
 
 inline_always
 static u32 timestamp_frequency()
@@ -841,7 +858,7 @@ extern "C"
 	cmts_fence_t cmts_new_fence()
 	{
 		pool_control_block c;
-		u32 r = (u32)-1;
+		u32 index = (u32)-1;
 		while (true)
 		{
 			while (fence_pool_size.load(memory_order_acquire) == cmts_capacity)
@@ -850,8 +867,8 @@ extern "C"
 			if (c.freelist != (u32)-1)
 			{
 				auto nc = c;
-				r = nc.freelist;
-				nc.freelist = fence_pool[r].pool_next;
+				index = nc.freelist;
+				nc.freelist = fence_pool[index].pool_next;
 				++nc.generation;
 				if (fence_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
 					break;
@@ -861,32 +878,38 @@ extern "C"
 				auto k = fence_pool_size.load(memory_order_acquire);
 				if (k == cmts_capacity)
 					continue;
-				r = k + 1;
-				if (fence_pool_size.compare_exchange_strong(k, r, memory_order_release, memory_order_relaxed))
+				index = k + 1;
+				if (fence_pool_size.compare_exchange_strong(k, index, memory_order_release, memory_order_relaxed))
 					break;
 			}
 		}
-		fence_pool[r].flag_unsafe = false;
-		return r;
+		auto& f = fence_pool[index];
+		f.flag_unsafe = false;
+		const u32 generation = f.generation;
+		return make_user_handle(index, generation);
 	}
 
 	void cmts_signal_fence(cmts_fence_t fence)
 	{
-		cmts_assert(fence_pool[fence].owning_fiber != (u32)-1, "Invalid fence handle.");
-		fence_wake_fibers(fence_pool[fence].owning_fiber);
+		const auto [index, generation] = break_user_handle(fence);
+		cmts_assert(fence_pool[index].owning_fiber != (u32)-1, "Invalid fence handle.");
+		cmts_assert(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
+		fence_wake_fibers(fence_pool[index].owning_fiber);
 	}
 
 	void cmts_delete_fence(cmts_fence_t fence)
 	{
-		cmts_assert(fence_pool[fence].owning_fiber != (u32)-1, "Invalid fence handle.");
-		new (&fence_pool[fence]) fence_state();
+		const auto [index, generation] = break_user_handle(fence);
+		cmts_assert(fence_pool[index].owning_fiber != (u32)-1, "Invalid fence handle.");
+		cmts_assert(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
+		new (&fence_pool[index]) fence_state();
 		pool_control_block c, nc;
 		while (true)
 		{
 			c = fence_pool_ctrl.load(memory_order_acquire);
 			nc = c;
-			fence_pool[fence].pool_next = nc.freelist;
-			nc.freelist = fence;
+			fence_pool[index].pool_next = nc.freelist;
+			nc.freelist = index;
 			++nc.generation;
 			if (fence_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
 				break;
@@ -895,24 +918,43 @@ extern "C"
 
 	void cmts_await_fence(cmts_fence_t fence)
 	{
-		cmts_assert(fence_pool[fence].owning_fiber != (u32)-1, "Invalid fence handle.");
+		const auto [index, generation] = break_user_handle(fence);
+		cmts_assert(fence_pool[index].owning_fiber != (u32)-1, "Invalid fence handle.");
+		cmts_assert(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
 		auto& f = fiber_pool[current_fiber];
 		f.sleeping = true;
-		append_fence_wait_list(current_fiber, fence);
+		append_fence_wait_list(current_fiber, index);
 		cmts_yield();
 	}
 
 	void cmts_await_fence_and_delete(cmts_fence_t fence)
 	{
-		cmts_assert(fence_pool[fence].owning_fiber != (u32)-1, "Invalid fence handle.");
-		cmts_await_fence(fence);
-		cmts_delete_fence(fence);
+		const auto [index, generation] = break_user_handle(fence);
+		cmts_assert(fence_pool[index].owning_fiber != (u32)-1, "Invalid fence handle.");
+		cmts_assert(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
+
+		auto& f = fiber_pool[current_fiber];
+		f.sleeping = true;
+		append_fence_wait_list(current_fiber, index);
+		cmts_yield();
+		new (&fence_pool[index]) fence_state();
+		pool_control_block c, nc;
+		while (true)
+		{
+			c = fence_pool_ctrl.load(memory_order_acquire);
+			nc = c;
+			fence_pool[index].pool_next = nc.freelist;
+			nc.freelist = index;
+			++nc.generation;
+			if (fence_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+				break;
+		}
 	}
 
 	cmts_counter_t cmts_new_counter(uint32_t start_value)
 	{
 		pool_control_block c;
-		u32 r = (u32)-1;
+		u32 index = (u32)-1;
 		while (true)
 		{
 			while (counter_pool_size.load(memory_order_acquire) == cmts_capacity)
@@ -922,8 +964,8 @@ extern "C"
 			if (c.freelist != (u32)-1)
 			{
 				auto nc = c;
-				r = nc.freelist;
-				nc.freelist = counter_pool[r].pool_next;
+				index = nc.freelist;
+				nc.freelist = counter_pool[index].pool_next;
 				++nc.generation;
 				if (counter_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
 					break;
@@ -933,54 +975,79 @@ extern "C"
 				auto k = counter_pool_size.load(memory_order_acquire);
 				if (k == cmts_capacity)
 					continue;
-				r = k + 1;
-				if (counter_pool_size.compare_exchange_strong(k, r, memory_order_release, memory_order_relaxed))
+				index = k + 1;
+				if (counter_pool_size.compare_exchange_strong(k, index, memory_order_release, memory_order_relaxed))
 					break;
 			}
 		}
-		counter_pool[r].counter_unsafe = start_value;
-		return r;
+		counter_pool[index].counter_unsafe = start_value;
+		const u32 generation = counter_pool[index].generation;
+		return make_user_handle(index, generation);
 	}
 
 	void cmts_increment_counter(cmts_counter_t counter)
 	{
-		cmts_assert(counter_pool[counter].owning_fiber != (u32)-1, "Invalid counter handle.");
-		counter_pool[counter].counter.fetch_add(1, memory_order_relaxed);
+		const auto [index, generation] = break_user_handle(counter);
+		cmts_assert(counter_pool[index].owning_fiber != (u32)-1, "Invalid counter handle.");
+		cmts_assert(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		counter_pool[index].counter.fetch_add(1, memory_order_relaxed);
 	}
 
 	void cmts_decrement_counter(cmts_counter_t counter)
 	{
-		cmts_assert(counter_pool[counter].owning_fiber != (u32)-1, "Invalid counter handle.");
-		counter_pool[counter].counter.fetch_sub(1, memory_order_relaxed);
+		const auto [index, generation] = break_user_handle(counter);
+		cmts_assert(counter_pool[index].owning_fiber != (u32)-1, "Invalid counter handle.");
+		cmts_assert(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		counter_pool[index].counter.fetch_sub(1, memory_order_relaxed);
 	}
 
 	void cmts_await_counter(cmts_counter_t counter)
 	{
-		cmts_assert(counter_pool[counter].owning_fiber != (u32)-1, "Invalid counter handle.");
+		const auto [index, generation] = break_user_handle(counter);
+		cmts_assert(counter_pool[index].owning_fiber != (u32)-1, "Invalid counter handle.");
+		cmts_assert(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
 		auto& f = fiber_pool[current_fiber];
 		f.sleeping = true;
-		append_counter_wait_list(current_fiber, counter);
+		append_counter_wait_list(current_fiber, index);
 		cmts_yield();
 	}
 
 	void cmts_await_counter_and_delete(cmts_counter_t counter)
 	{
-		cmts_assert(counter_pool[counter].owning_fiber != (u32)-1, "Invalid counter handle.");
-		cmts_await_counter(counter);
-		cmts_delete_counter(counter);
-	}
-
-	void cmts_delete_counter(cmts_counter_t counter)
-	{
-		cmts_assert(counter_pool[counter].owning_fiber != (u32)-1, "Invalid counter handle.");
-		new (&counter_pool[counter]) counter_state();
+		const auto [index, generation] = break_user_handle(counter);
+		cmts_assert(counter_pool[index].owning_fiber != (u32)-1, "Invalid counter handle.");
+		cmts_assert(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		auto& f = fiber_pool[current_fiber];
+		f.sleeping = true;
+		append_counter_wait_list(current_fiber, index);
+		cmts_yield();
+		new (&counter_pool[index]) counter_state();
 		pool_control_block c, nc;
 		while (true)
 		{
 			c = counter_pool_ctrl.load(memory_order_acquire);
 			nc = c;
-			counter_pool[counter].pool_next = nc.freelist;
-			nc.freelist = counter;
+			counter_pool[index].pool_next = nc.freelist;
+			nc.freelist = index;
+			++nc.generation;
+			if (counter_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+				break;
+		}
+	}
+
+	void cmts_delete_counter(cmts_counter_t counter)
+	{
+		const auto [index, generation] = break_user_handle(counter);
+		cmts_assert(counter_pool[index].owning_fiber != (u32)-1, "Invalid counter handle.");
+		cmts_assert(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		new (&counter_pool[index]) counter_state();
+		pool_control_block c, nc;
+		while (true)
+		{
+			c = counter_pool_ctrl.load(memory_order_acquire);
+			nc = c;
+			counter_pool[index].pool_next = nc.freelist;
+			nc.freelist = index;
 			++nc.generation;
 			if (counter_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
 				break;
@@ -989,13 +1056,16 @@ extern "C"
 
 	void cmts_dispatch_with_fence(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_fence_t fence)
 	{
+		const auto [index, generation] = break_user_handle(fence);
+		cmts_assert(fence_pool[index].owning_fiber != (u32)-1, "Invalid fence handle.");
+		cmts_assert(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
 		const u32 id = new_fiber();
 		auto& f = fiber_pool[id];
 		f.function = task_function;
 		f.parameter = param;
 		f.has_fence = true;
-		fiber_sync[id].fence_id = fence;
-		fence_pool[fence].owning_fiber = current_fiber;
+		fiber_sync[id].fence_id = index;
+		fence_pool[index].owning_fiber = current_fiber;
 		if (f.handle == nullptr)
 			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, fiber_main, &f);
 		push_fiber(id, f.priority);
@@ -1003,13 +1073,16 @@ extern "C"
 
 	void cmts_dispatch_with_counter(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_counter_t counter)
 	{
+		const auto [index, generation] = break_user_handle(counter);
+		cmts_assert(fence_pool[index].owning_fiber != (u32)-1, "Invalid counter handle.");
+		cmts_assert(fence_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
 		const u32 id = new_fiber();
 		auto& f = fiber_pool[id];
 		f.function = task_function;
 		f.parameter = param;
 		f.has_counter = true;
-		fiber_sync[id].counter_id = counter;
-		counter_pool[counter].owning_fiber = current_fiber;
+		fiber_sync[id].counter_id = index;
+		counter_pool[index].owning_fiber = current_fiber;
 		if (f.handle == nullptr)
 			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, fiber_main, &f);
 		push_fiber(id, f.priority);
