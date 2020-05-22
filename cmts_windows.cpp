@@ -108,7 +108,7 @@ static thread_local u32							current_fiber;
 #define assume(expression) __assume((expression))
 #endif
 
-#define array_size(array) ((sizeof(array)) / (sizeof(array[0])))
+#define static_array_size(array) ((sizeof(array)) / (sizeof(array[0])))
 #define concatenate_impl(l, r) l##r
 #define concatenate(l, r) concatenate_impl(l, r)
 #define anonymous concatenate(_anon_, __LINE__)
@@ -124,9 +124,14 @@ static thread_local u32							current_fiber;
 inline_never
 static void cmts_assertion_handler(cstring message)
 {
-	for (u32 i = 0; i < cmts_processor_count(); ++i)
+	range_for(i, 0, cmts_processor_count())
+	{
 		likely_if(i != processor_index)
+		{
 			SuspendThread(threads[i]);
+		}
+	}
+
 	OutputDebugStringA(message);
 	DebugBreak();
 	abort();
@@ -242,11 +247,16 @@ struct alignas(64) lockfree_sharded_queue //BROKEN
 	queue_shard_type* queues = nullptr;
 	u32 mod_mask;
 
-	void initialize(u32 capacity)
+	static constexpr u32 get_memory_allocation_size(u32 capacity)
+	{
+		return (capacity >> 8) * sizeof(queue_shard_type);
+	}
+
+	void initialize(u32 capacity, void* memory)
 	{
 		const u32 n = capacity / 256;
 		this->mod_mask = n - 1;
-		queues = (queue_shard_type*)VirtualAlloc(nullptr, n * sizeof(queue_shard_type), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		this->queues = (queue_shard_type*)memory;
 	}
 
 	void finalize()
@@ -312,11 +322,16 @@ struct alignas(64) locked_sharded_queue
 	u32 mod_mask;
 	queue_shard_type* queues = nullptr;
 
-	void initialize(u32 capacity)
+	static constexpr u32 get_memory_allocation_size(u32 capacity)
+	{
+		return (capacity >> 8) * sizeof(queue_shard_type);
+	}
+
+	void initialize(u32 capacity, void* memory)
 	{
 		const u32 n = capacity / 256;
 		this->mod_mask = n - 1;
-		queues = (queue_shard_type*)VirtualAlloc(nullptr, n * sizeof(queue_shard_type), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		this->queues = (queue_shard_type*)memory;
 	}
 
 	void finalize()
@@ -784,8 +799,10 @@ extern "C"
 		cmts_capacity = max_fibers;
 		should_continue.safe.store(true, memory_order_release);
 		const u32 core_count = cmts_processor_count();
+		const u32 qss = sharded_queue::get_memory_allocation_size(max_fibers);
 		const size_t allocation_size =
 			(core_count * sizeof(HANDLE)) +
+			(qss * static_array_size(queues)) +
 			(max_fibers * (sizeof(fiber_state) + sizeof(fence_state) + sizeof(counter_state) + sizeof(fiber_synchronization_state)));
 
 		auto ptr = (u8*)VirtualAlloc(nullptr, allocation_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
@@ -794,23 +811,38 @@ extern "C"
 		fence_pool = (fence_state*)(fiber_pool + max_fibers);
 		counter_pool = (counter_state*)(fence_pool + max_fibers);
 		fiber_sync = (fiber_synchronization_state*)(counter_pool + max_fibers);
-		for (u32 i = 0; i < max_fibers; ++i)
+		auto qptr = (queue_shard_type*)(fiber_sync + max_fibers);
+
+		range_for(i, 0, static_array_size(queues))
+			queues[i].initialize(max_fibers, qptr + i * qss);
+		
+		range_for(i, 0, max_fibers)
+		{
 			new (&fiber_pool[i]) fiber_state();
-		for (u32 i = 0; i < max_fibers; ++i)
 			new (&fence_pool[i]) fence_state();
-		for (u32 i = 0; i < max_fibers; ++i)
 			new (&counter_pool[i]) counter_state();
-		for (u32 i = 0; i < max_fibers; ++i)
 			new (&fiber_sync[i]) fiber_synchronization_state();
-		for (auto& q : queues)
-			q.initialize(max_fibers);
+		}
+
 		DWORD tmp;
-		for (u32 i = 0; i < core_count; ++i)
+		range_for(i, 0, core_count)
 		{
 			threads[i] = CreateThread(nullptr, 1 << 21, thread_main, (void*)(uptr)i, CREATE_SUSPENDED, &tmp);
 			SetThreadAffinityMask(threads[i], 1 << i);
 			ResumeThread(threads[i]);
 		}
+	}
+
+	void cmts_halt()
+	{
+		range_for(i, 0, cmts_processor_count())
+			SuspendThread(threads[i]);
+	}
+
+	void cmts_resume()
+	{
+		range_for(i, 0, cmts_processor_count())
+			ResumeThread(threads[i]);
 	}
 
 	void cmts_signal_finalize()

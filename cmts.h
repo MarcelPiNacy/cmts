@@ -53,6 +53,12 @@ extern "C"
 	// Initializes CMTS with the specified maximum number of tasks
 	void			cmts_initialize(uint32_t max_tasks);
 
+	// Pauses all CMTS worker threads.
+	void			cmts_halt();
+
+	// Resumes execution of all CMTS worker threads.
+	void			cmts_resume();
+
 	// Tells CMTS to finish execution: all threads will finish once all running tasks either yield or exit.
 	void			cmts_signal_finalize();
 
