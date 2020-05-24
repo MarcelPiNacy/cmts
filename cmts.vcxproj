@@ -225,10 +225,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cmts.h" />
-    <ClInclude Include="cmts.hpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="package.di" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

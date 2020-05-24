@@ -152,6 +152,11 @@ struct sharded_lockfree_queue
 	struct control_block
 	{
 		u8 head, tail, generation, unused;
+	
+		constexpr bool operator == (control_block other) const
+		{
+			return (head == other.head) & (tail == other.tail) & (generation == other.generation);
+		}
 	};
 
 	struct alignas(64) queue_shard_256
@@ -163,9 +168,10 @@ struct sharded_lockfree_queue
 			u32 e = (u32)-1;
 			while (true)
 			{
-				if (values[index].load(memory_order_acquire) == (u32)-1)
-					if (values[index].compare_exchange_strong(e, value, memory_order_release, memory_order_relaxed))
+				likely_if(values[index].load(memory_order_acquire) == (u32)-1)
+					likely_if(values[index].compare_exchange_strong(e, value, memory_order_release, memory_order_relaxed))
 						break;
+				_mm_pause();
 			}
 		}
 
@@ -175,9 +181,10 @@ struct sharded_lockfree_queue
 			while (true)
 			{
 				r = values[index].load(memory_order_acquire);
-				if (r != (u32)-1)
-					if (values[index].compare_exchange_strong(r, (u32)-1, memory_order_release, memory_order_relaxed))
+				likely_if(r != (u32)-1)
+					likely_if(values[index].compare_exchange_strong(r, (u32)-1, memory_order_release, memory_order_relaxed))
 						break;
+				_mm_pause();
 			}
 			return r;
 		}
@@ -206,16 +213,20 @@ struct sharded_lockfree_queue
 		{
 			nc = c = ctrl.load(memory_order_acquire);
 			++nc.head;
-			if (nc.head == c.tail)
+			unlikely_if(nc.head == c.tail)
 				return false;
 			++nc.generation;
 
-			if (ctrl.compare_exchange_strong(c, nc, memory_order_acquire, memory_order_relaxed))
+			likely_if(ctrl.load(memory_order_relaxed) == c)
 			{
-				const auto [s, i] = break_index(c.head);
-				values[s].store(value, i);
-				return true;
+				likely_if(ctrl.compare_exchange_strong(c, nc, memory_order_acquire, memory_order_relaxed))
+				{
+					const auto [s, i] = break_index(c.head);
+					values[s].store(value, i);
+					return true;
+				}
 			}
+			_mm_pause();
 		}
 	}
 
@@ -225,17 +236,22 @@ struct sharded_lockfree_queue
 		while (true)
 		{
 			c = ctrl.load(memory_order_acquire);
-			if (c.head == c.tail)
+			unlikely_if(c.head == c.tail)
 				return pair<bool, u32>();
 			nc = c;
 			++nc.tail;
 			++nc.generation;
-			if (ctrl.compare_exchange_strong(c, nc, memory_order_acquire, memory_order_relaxed))
+
+			likely_if(ctrl.load(memory_order_relaxed) == c)
 			{
-				const auto [s, i] = break_index(c.tail);
-				const u32 r = values[s].load(i);
-				return pair<bool, u32>(true, r);
+				likely_if(ctrl.compare_exchange_strong(c, nc, memory_order_acquire, memory_order_relaxed))
+				{
+					const auto [s, i] = break_index(c.tail);
+					const u32 r = values[s].load(i);
+					return pair<bool, u32>(true, r);
+				}
 			}
+			_mm_pause();
 		}
 	}
 };
@@ -391,6 +407,7 @@ static void append_fence_wait_list(u32 fiber, u32 value)
 		++nc.generation;
 		likely_if(s.fence_wait_list.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
 			break;
+		_mm_pause();
 	}
 }
 
@@ -409,6 +426,7 @@ static u32 fetch_fence_wait_list(u32 fiber)
 		++nc.generation;
 		likely_if(s.fence_wait_list.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
 			return r;
+		_mm_pause();
 	}
 }
 
@@ -425,6 +443,7 @@ static void append_counter_wait_list(u32 fiber, u32 value)
 		++nc.generation;
 		likely_if(s.counter_wait_list.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
 			break;
+		_mm_pause();
 	}
 }
 
@@ -443,6 +462,7 @@ static u32 fetch_counter_wait_list(u32 fiber)
 		++nc.generation;
 		likely_if(s.counter_wait_list.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
 			return r;
+		_mm_pause();
 	}
 }
 
@@ -455,6 +475,7 @@ static u32 new_fiber()
 	{
 		while (fiber_pool_size.load(memory_order_acquire) == cmts_capacity)
 			_mm_pause();
+
 		c = fiber_pool_ctrl.load(memory_order_acquire);
 		likely_if(c.freelist != (u32)-1)
 		{
@@ -474,6 +495,7 @@ static u32 new_fiber()
 			likely_if(fiber_pool_size.compare_exchange_strong(k, r, memory_order_release, memory_order_relaxed))
 				break;
 		}
+		_mm_pause();
 	}
 	return r;
 }
@@ -495,6 +517,7 @@ static void delete_fiber(u32 fiber)
 		++nc.generation;
 		likely_if(fiber_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
 			break;
+		_mm_pause();
 	}
 }
 
@@ -596,15 +619,14 @@ static void counter_conditionally_wake_fibers(u32 fiber)
 		counter_wake_fibers(s.counter_id);
 }
 
-static void __stdcall fiber_main(void* param)
+static void __stdcall fiber_main(fiber_state* f)
 {
-	auto& state = *(fiber_state*)param;
 	while (true)
 	{
 		unlikely_if(!should_continue.unsafe)
 			conditionally_exit_thread();
-		state.function(state.parameter);
-		state.done = true;
+		f->function(f->parameter);
+		f->done = true;
 		SwitchToFiber(root_fiber);
 	}
 }
@@ -737,7 +759,7 @@ extern "C"
 		s.function = fiber_function;
 		s.parameter = param;
 		unlikely_if(s.handle == nullptr)
-			s.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, fiber_main, &fiber_pool[id]);
+			s.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &fiber_pool[id]);
 		push_fiber(id, s.priority);
 	}
 
@@ -965,7 +987,7 @@ extern "C"
 		fiber_sync[id].fence_id = index;
 		fence_pool[index].owning_fiber = current_fiber;
 		unlikely_if(f.handle == nullptr)
-			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, fiber_main, &f);
+			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
 		push_fiber(id, f.priority);
 	}
 
@@ -982,7 +1004,7 @@ extern "C"
 		fiber_sync[id].counter_id = index;
 		counter_pool[index].owning_fiber = current_fiber;
 		unlikely_if(f.handle == nullptr)
-			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, fiber_main, &f);
+			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
 		push_fiber(id, f.priority);
 	}
 
