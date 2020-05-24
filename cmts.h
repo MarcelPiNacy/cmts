@@ -50,8 +50,8 @@ enum
 extern "C"
 {
 
-	// Initializes CMTS with the specified maximum number of tasks
-	void			cmts_initialize(uint32_t max_tasks);
+	// Initializes CMTS with the specified maximum number of tasks.
+	void			cmts_initialize(uint32_t max_tasks, uint32_t max_cpus);
 
 	// Pauses all CMTS worker threads.
 	void			cmts_halt();
@@ -118,6 +118,8 @@ extern "C"
 
 	uint32_t		cmts_current_task_id();
 
-	uint32_t		cmts_processor_count();
+	uint32_t		cmts_used_cpu_count();
+
+	uint32_t		cmts_available_cpu_count();
 
 }
