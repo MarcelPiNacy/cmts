@@ -88,6 +88,8 @@ extern "C"
 
 	cmts_fence_t	cmts_new_fence();
 
+	bool			cmts_is_fence_valid(cmts_fence_t fence);
+
 	void			cmts_signal_fence(cmts_fence_t fence);
 
 	void			cmts_await_fence(cmts_fence_t fence);
@@ -99,6 +101,8 @@ extern "C"
 
 
 	cmts_counter_t	cmts_new_counter(uint32_t start_value);
+
+	bool			cmts_is_counter_valid(cmts_counter_t counter);
 
 	void			cmts_increment_counter(cmts_counter_t counter);
 
@@ -694,7 +698,7 @@ static void __stdcall fiber_main(fiber_state* f)
 
 static DWORD __stdcall thread_main(void* param)
 {
-	processor_index = (uint32_t)param;
+	processor_index = (uint32_t)(size_t)param;
 	root_fiber = ConvertThreadToFiberEx(nullptr, FIBER_FLAG_FLOAT_SWITCH);
 	while (true)
 	{
@@ -721,8 +725,10 @@ static DWORD __stdcall thread_main(void* param)
 
 
 
+#ifdef __cplusplus
 extern "C"
 {
+#endif
 
 	void cmts_initialize(uint32_t max_fibers, uint32_t max_cpus)
 	{
@@ -767,7 +773,7 @@ extern "C"
 		for (uint32_t i = 0; i < used_cpu_count; ++i)
 		{
 			threads[i] = CreateThread(nullptr, 1 << 21, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, &tmp);
-			SetThreadAffinityMask(threads[i], 1 << i);
+			SetThreadAffinityMask(threads[i], (DWORD_PTR)(1U << i));
 			ResumeThread(threads[i]);
 		}
 	}
@@ -871,12 +877,21 @@ extern "C"
 		return make_user_handle(index, generation);
 	}
 
+	bool cmts_is_fence_valid(cmts_fence_t fence)
+	{
+		const uint32_t index = (uint32_t)fence;
+		const uint32_t generation = (uint32_t)(fence >> 32);
+		const bool a = fence_pool[index].owning_fiber != (uint32_t)-1;
+		const bool b = fence_pool[index].generation == generation;
+		return a & b;
+	}
+
 	void cmts_signal_fence(cmts_fence_t fence)
 	{
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
 		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
-		CMTS_ASSERT(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
+		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
 		fence_wake_fibers(fence_pool[index].owning_fiber);
 	}
 
@@ -885,7 +900,7 @@ extern "C"
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
 		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
-		CMTS_ASSERT(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
+		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
 		new (&fence_pool[index]) fence_state();
 		pool_control_block c, nc;
 		while (true)
@@ -905,7 +920,7 @@ extern "C"
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
 		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
-		CMTS_ASSERT(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
+		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
 		auto& f = fiber_pool[current_fiber];
 		f.sleeping = true;
 		append_fence_wait_list(current_fiber, index);
@@ -917,7 +932,7 @@ extern "C"
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
 		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
-		CMTS_ASSERT(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
+		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
 
 		auto& f = fiber_pool[current_fiber];
 		f.sleeping = true;
@@ -971,12 +986,21 @@ extern "C"
 		return make_user_handle(index, generation);
 	}
 
+	bool cmts_is_counter_valid(cmts_counter_t counter)
+	{
+		const uint32_t index = (uint32_t)counter;
+		const uint32_t generation = (uint32_t)(counter >> 32);
+		const bool a = counter_pool[index].owning_fiber != (uint32_t)-1;
+		const bool b = counter_pool[index].generation == generation;
+		return a & b;
+	}
+
 	void cmts_increment_counter(cmts_counter_t counter)
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
-		CMTS_ASSERT(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.fetch_add(1, memory_order_relaxed);
 	}
 
@@ -985,7 +1009,7 @@ extern "C"
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
-		CMTS_ASSERT(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.fetch_sub(1, memory_order_relaxed);
 	}
 
@@ -994,7 +1018,7 @@ extern "C"
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
-		CMTS_ASSERT(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		auto& f = fiber_pool[current_fiber];
 		f.sleeping = true;
 		append_counter_wait_list(current_fiber, index);
@@ -1006,7 +1030,7 @@ extern "C"
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
-		CMTS_ASSERT(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		auto& f = fiber_pool[current_fiber];
 		f.sleeping = true;
 		append_counter_wait_list(current_fiber, index);
@@ -1030,7 +1054,7 @@ extern "C"
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
-		CMTS_ASSERT(counter_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		new (&counter_pool[index]) counter_state();
 		pool_control_block c, nc;
 		while (true)
@@ -1050,7 +1074,7 @@ extern "C"
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
 		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
-		CMTS_ASSERT(fence_pool[index].generation != generation, "Invalid fence handle, generation mismatch.");
+		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
 		const uint32_t id = new_fiber();
 		auto& f = fiber_pool[id];
 		f.function = task_function;
@@ -1068,7 +1092,7 @@ extern "C"
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
-		CMTS_ASSERT(fence_pool[index].generation != generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		const uint32_t id = new_fiber();
 		auto& f = fiber_pool[id];
 		f.function = task_function;
@@ -1103,7 +1127,9 @@ extern "C"
 		return (uint32_t)info.dwNumberOfProcessors;
 	}
 
+#ifdef __cplusplus
 }
+#endif
 
 #undef CMTS_DEBUG
 #undef CMTS_LIKELY_IF
@@ -1113,7 +1139,7 @@ extern "C"
 #undef CMTS_INLINE_ALWAYS
 #undef CMTS_INLINE_NEVER
 
-#endif //CMTS_INCLUDED
+#endif //CMTS_IMPLEMENTATION_WINDOWS
 
 
 
