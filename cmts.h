@@ -101,7 +101,6 @@ extern "C"
 
 #include <atomic>
 #include <intrin.h>
-using namespace std;
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #define NOMINMAX
@@ -188,8 +187,8 @@ static void cmts_assertion_handler(const char* const message)
 
 union flag_type
 {
-	atomic<cmts_boolean_t>	safe;
-	cmts_boolean_t			unsafe;
+	std::atomic<cmts_boolean_t>	safe;
+	cmts_boolean_t				unsafe;
 };
 
 template <typename A, typename B>
@@ -211,8 +210,8 @@ struct sharded_lockfree_queue
 		}
 	};
 
-	alignas(64) atomic<control_block> ctrl;
-	alignas(64) atomic<uint32_t>* values;
+	alignas(64) std::atomic<control_block> ctrl;
+	alignas(64) std::atomic<uint32_t>* values;
 
 	static uint32_t adjust_index(uint32_t index)
 	{
@@ -224,8 +223,8 @@ struct sharded_lockfree_queue
 
 	void initialize(void* memory)
 	{
-		values = (atomic<uint32_t>*)memory;
-		memset(values, 255, cmts_capacity * sizeof(atomic<uint32_t>));
+		values = (std::atomic<uint32_t>*)memory;
+		memset(values, 255, cmts_capacity * sizeof(std::atomic<uint32_t>));
 	}
 
 	cmts_boolean_t store(uint32_t value)
@@ -233,22 +232,22 @@ struct sharded_lockfree_queue
 		control_block c, nc;
 		while (1)
 		{
-			nc = c = ctrl.load(memory_order_acquire);
+			nc = c = ctrl.load(std::memory_order_acquire);
 			++nc.head;
 			CMTS_UNLIKELY_IF(nc.head == c.tail)
 				return CMTS_FALSE;
 			++nc.generation;
 
-			CMTS_LIKELY_IF(ctrl.load(memory_order_relaxed) == c)
+			CMTS_LIKELY_IF(ctrl.load(std::memory_order_relaxed) == c)
 			{
-				CMTS_LIKELY_IF(ctrl.compare_exchange_strong(c, nc, memory_order_acquire, memory_order_relaxed))
+				CMTS_LIKELY_IF(ctrl.compare_exchange_strong(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
 				{
 					const uint32_t i = adjust_index(c.head);
 					uint32_t empty = (uint32_t)-1;
 					while (1)
 					{
-						if (values[i].load(memory_order_acquire) == empty)
-							if (values[i].compare_exchange_weak(empty, value, memory_order_release, memory_order_relaxed))
+						if (values[i].load(std::memory_order_acquire) == empty)
+							if (values[i].compare_exchange_weak(empty, value, std::memory_order_release, std::memory_order_relaxed))
 								return CMTS_TRUE;
 						_mm_pause();
 					}
@@ -263,24 +262,24 @@ struct sharded_lockfree_queue
 		control_block c, nc;
 		while (1)
 		{
-			c = ctrl.load(memory_order_acquire);
+			c = ctrl.load(std::memory_order_acquire);
 			CMTS_UNLIKELY_IF(c.head == c.tail)
 				return {};
 			nc = c;
 			++nc.tail;
 			++nc.generation;
 
-			CMTS_LIKELY_IF(ctrl.load(memory_order_relaxed) == c)
+			CMTS_LIKELY_IF(ctrl.load(std::memory_order_relaxed) == c)
 			{
-				CMTS_LIKELY_IF(ctrl.compare_exchange_strong(c, nc, memory_order_acquire, memory_order_relaxed))
+				CMTS_LIKELY_IF(ctrl.compare_exchange_strong(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
 				{
 					const uint32_t i = adjust_index(c.tail);
 					uint32_t empty = (uint32_t)-1;
 					while (1)
 					{
-						uint32_t r = values[i].load(memory_order_acquire);
+						uint32_t r = values[i].load(std::memory_order_acquire);
 						if (r != empty)
-							if (values[i].compare_exchange_weak(r, empty, memory_order_release, memory_order_relaxed))
+							if (values[i].compare_exchange_weak(r, empty, std::memory_order_release, std::memory_order_relaxed))
 								return { CMTS_TRUE, r };
 						_mm_pause();
 					}
@@ -301,8 +300,8 @@ struct alignas(64) fiber_synchronization_state
 	uint32_t fence_id = (uint32_t)-1;
 	uint32_t counter_id = (uint32_t)-1;
 	uint32_t counter_next = (uint32_t)-1;
-	atomic<wait_list_control_block> fence_wait_list = wait_list_control_block{ (uint32_t)-1, 0 };
-	atomic<wait_list_control_block> counter_wait_list = wait_list_control_block{ (uint32_t)-1, 0 };
+	std::atomic<wait_list_control_block> fence_wait_list = wait_list_control_block{ (uint32_t)-1, 0 };
+	std::atomic<wait_list_control_block> counter_wait_list = wait_list_control_block{ (uint32_t)-1, 0 };
 };
 
 struct alignas(64) fiber_state
@@ -320,7 +319,7 @@ struct alignas(64) fiber_state
 
 struct fence_state
 {
-	union { atomic_bool flag; cmts_boolean_t flag_unsafe; };
+	union { std::atomic<cmts_boolean_t> flag; cmts_boolean_t flag_unsafe; };
 	uint32_t generation;
 	uint32_t owning_fiber;
 	uint32_t pool_next;
@@ -339,7 +338,7 @@ struct fence_state
 
 struct counter_state
 {
-	union { atomic<uint32_t> counter; uint32_t counter_unsafe; };
+	union { std::atomic<uint32_t> counter; uint32_t counter_unsafe; };
 	uint32_t generation;
 	uint32_t owning_fiber;
 	uint32_t pool_next;
@@ -371,18 +370,18 @@ static fence_state* fence_pool;
 static counter_state* counter_pool;
 static fiber_synchronization_state* fiber_sync;
 
-alignas(64) static atomic<pool_control_block>	fiber_pool_ctrl;
-alignas(64) static atomic<uint32_t>				fiber_pool_size;
+alignas(64) static std::atomic<pool_control_block>	fiber_pool_ctrl;
+alignas(64) static std::atomic<uint32_t>			fiber_pool_size;
 
-alignas(64) static atomic<pool_control_block>	fence_pool_ctrl;
-alignas(64) static atomic<uint32_t>				fence_pool_size;
+alignas(64) static std::atomic<pool_control_block>	fence_pool_ctrl;
+alignas(64) static std::atomic<uint32_t>			fence_pool_size;
 
-alignas(64) static atomic<pool_control_block>	counter_pool_ctrl;
-alignas(64) static atomic<uint32_t>				counter_pool_size;
+alignas(64) static std::atomic<pool_control_block>	counter_pool_ctrl;
+alignas(64) static std::atomic<uint32_t>			counter_pool_size;
 
-alignas(64) static queue_type					queues[4];
+alignas(64) static queue_type						queues[4];
 
-alignas(64) static flag_type					should_continue = {};
+alignas(64) static flag_type						should_continue = {};
 
 //!@region thread-shared state group 2
 
@@ -419,7 +418,7 @@ static uint32_t timestamp_ns()
 CMTS_INLINE_NEVER
 static void conditionally_exit_thread()
 {
-	CMTS_UNLIKELY_IF(!should_continue.safe.load(memory_order::memory_order_acquire))
+	CMTS_UNLIKELY_IF(!should_continue.safe.load(std::memory_order_acquire))
 		ExitThread(0);
 }
 
@@ -430,11 +429,11 @@ static void append_fence_wait_list(uint32_t fiber, uint32_t value)
 	fiber_synchronization_state& s = fiber_sync[fiber];
 	while (1)
 	{
-		nc = c = s.fence_wait_list.load(memory_order_acquire);
+		nc = c = s.fence_wait_list.load(std::memory_order_acquire);
 		s.fence_next = nc.head;
 		nc.head = value;
 		++nc.generation;
-		CMTS_LIKELY_IF(s.fence_wait_list.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+		CMTS_LIKELY_IF(s.fence_wait_list.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 			break;
 		_mm_pause();
 	}
@@ -447,13 +446,13 @@ static uint32_t fetch_fence_wait_list(uint32_t fiber)
 	fiber_synchronization_state& s = fiber_sync[fiber];
 	while (1)
 	{
-		nc = c = s.fence_wait_list.load(memory_order_acquire);
+		nc = c = s.fence_wait_list.load(std::memory_order_acquire);
 		const uint32_t r = c.head;
 		CMTS_UNLIKELY_IF(r == (uint32_t)-1)
 			return (uint32_t)-1;
 		nc.head = fiber_sync[nc.head].fence_next;
 		++nc.generation;
-		CMTS_LIKELY_IF(s.fence_wait_list.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+		CMTS_LIKELY_IF(s.fence_wait_list.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 			return r;
 		_mm_pause();
 	}
@@ -466,11 +465,11 @@ static void append_counter_wait_list(uint32_t fiber, uint32_t value)
 	fiber_synchronization_state& s = fiber_sync[fiber];
 	while (1)
 	{
-		nc = c = s.counter_wait_list.load(memory_order_acquire);
+		nc = c = s.counter_wait_list.load(std::memory_order_acquire);
 		s.fence_next = nc.head;
 		nc.head = value;
 		++nc.generation;
-		CMTS_LIKELY_IF(s.counter_wait_list.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+		CMTS_LIKELY_IF(s.counter_wait_list.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 			break;
 		_mm_pause();
 	}
@@ -483,13 +482,13 @@ static uint32_t fetch_counter_wait_list(uint32_t fiber)
 	fiber_synchronization_state& s = fiber_sync[fiber];
 	while (1)
 	{
-		nc = c = s.counter_wait_list.load(memory_order_acquire);
+		nc = c = s.counter_wait_list.load(std::memory_order_acquire);
 		const uint32_t r = c.head;
 		CMTS_UNLIKELY_IF(r == (uint32_t)-1)
 			return (uint32_t)-1;
 		nc.head = fiber_sync[nc.head].fence_next;
 		++nc.generation;
-		CMTS_LIKELY_IF(s.counter_wait_list.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+		CMTS_LIKELY_IF(s.counter_wait_list.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 			return r;
 		_mm_pause();
 	}
@@ -502,26 +501,26 @@ static uint32_t new_fiber()
 	uint32_t r = (uint32_t)-1;
 	while (1)
 	{
-		while (fiber_pool_size.load(memory_order_acquire) == cmts_capacity)
+		while (fiber_pool_size.load(std::memory_order_acquire) == cmts_capacity)
 			_mm_pause();
 
-		c = fiber_pool_ctrl.load(memory_order_acquire);
+		c = fiber_pool_ctrl.load(std::memory_order_acquire);
 		CMTS_LIKELY_IF(c.freelist != (uint32_t)-1)
 		{
 			nc = c;
 			r = nc.freelist;
 			nc.freelist = fiber_pool[r].pool_next;
 			++nc.generation;
-			CMTS_LIKELY_IF(fiber_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+			CMTS_LIKELY_IF(fiber_pool_ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 				break;
 		}
 		else
 		{
-			uint32_t k = fiber_pool_size.load(memory_order_acquire);
+			uint32_t k = fiber_pool_size.load(std::memory_order_acquire);
 			CMTS_UNLIKELY_IF(k == cmts_capacity)
 				continue;
 			r = k + 1;
-			CMTS_LIKELY_IF(fiber_pool_size.compare_exchange_strong(k, r, memory_order_release, memory_order_relaxed))
+			CMTS_LIKELY_IF(fiber_pool_size.compare_exchange_strong(k, r, std::memory_order_release, std::memory_order_relaxed))
 				break;
 		}
 		_mm_pause();
@@ -539,12 +538,12 @@ static void delete_fiber(uint32_t fiber)
 	pool_control_block c, nc;
 	while (1)
 	{
-		c = fiber_pool_ctrl.load(memory_order_acquire);
+		c = fiber_pool_ctrl.load(std::memory_order_acquire);
 		nc = c;
 		f.pool_next = nc.freelist;
 		nc.freelist = fiber;
 		++nc.generation;
-		CMTS_LIKELY_IF(fiber_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+		CMTS_LIKELY_IF(fiber_pool_ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 			break;
 		_mm_pause();
 	}
@@ -623,7 +622,7 @@ static void fence_conditionally_wake_fibers(uint32_t fiber)
 {
 	fiber_synchronization_state& s = fiber_sync[fiber];
 	CMTS_ASSERT(s.fence_id != (uint32_t)-1, "Invalid fiber_sync.counter_id value.");
-	CMTS_LIKELY_IF(!fence_pool[s.fence_id].flag.exchange(CMTS_TRUE, memory_order_release))
+	CMTS_LIKELY_IF(!fence_pool[s.fence_id].flag.exchange(CMTS_TRUE, std::memory_order_release))
 		fence_wake_fibers(s.fence_id);
 }
 
@@ -644,7 +643,7 @@ static void counter_conditionally_wake_fibers(uint32_t fiber)
 {
 	fiber_synchronization_state& s = fiber_sync[fiber];
 	CMTS_ASSERT(s.counter_id != (uint32_t)-1, "Invalid fiber_sync.counter_id value.");
-	CMTS_LIKELY_IF(counter_pool[s.counter_id].counter.fetch_sub(1, memory_order_release) == 0)
+	CMTS_LIKELY_IF(counter_pool[s.counter_id].counter.fetch_sub(1, std::memory_order_release) == 0)
 		counter_wake_fibers(s.counter_id);
 }
 
@@ -700,16 +699,16 @@ extern "C"
 		CMTS_ASSERT(max_fibers <= CMTS_MAX_TASKS, "The requested scheduler capacity passed to cmts_initialize exceeds the supported limit");
 		CMTS_ASSERT(__popcnt(max_fibers) == 1, "The requested scheduler capacity passed to cmts_initialize must be a power of 2");
 
-		CMTS_UNLIKELY_IF(should_continue.safe.load(memory_order_acquire))
+		CMTS_UNLIKELY_IF(should_continue.safe.load(std::memory_order_acquire))
 			return;
 
 		cmts_capacity = max_fibers;
 		queue_shard_mod_mask = max_fibers - 1;
-		should_continue.safe.store(CMTS_TRUE, memory_order_release);
+		should_continue.safe.store(CMTS_TRUE, std::memory_order_release);
 		const uint32_t core_count = cmts_available_cpu_count();
 		used_cpu_count = max_cpus < core_count ? max_cpus : core_count;
 		constexpr uint32_t queue_count = sizeof(queues) / sizeof(queues[0]);
-		const uint32_t qss = cmts_capacity * sizeof(atomic<uint32_t>);
+		const uint32_t qss = cmts_capacity * sizeof(std::atomic<uint32_t>);
 		const size_t allocation_size =
 			(used_cpu_count * sizeof(HANDLE)) +
 			(qss * queue_count) +
@@ -760,7 +759,7 @@ extern "C"
 	// Tells CMTS to finish execution: all threads will finish once all running tasks either yield or exit.
 	void cmts_signal_finalize()
 	{
-		should_continue.safe.store(CMTS_FALSE, memory_order_release);
+		should_continue.safe.store(CMTS_FALSE, std::memory_order_release);
 	}
 
 	// Waits for all CMTS threads to exit and returns allocated memory to the OS.
@@ -821,26 +820,26 @@ extern "C"
 		uint32_t index = (uint32_t)-1;
 		while (1)
 		{
-			while (fence_pool_size.load(memory_order_acquire) == cmts_capacity)
+			while (fence_pool_size.load(std::memory_order_acquire) == cmts_capacity)
 				_mm_pause();
 
-			c = fence_pool_ctrl.load(memory_order_acquire);
+			c = fence_pool_ctrl.load(std::memory_order_acquire);
 			CMTS_LIKELY_IF(c.freelist != (uint32_t)-1)
 			{
 				nc = c;
 				index = nc.freelist;
 				nc.freelist = fence_pool[index].pool_next;
 				++nc.generation;
-				CMTS_LIKELY_IF(fence_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+				CMTS_LIKELY_IF(fence_pool_ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 					break;
 			}
 			else
 			{
-				uint32_t k = fence_pool_size.load(memory_order_acquire);
+				uint32_t k = fence_pool_size.load(std::memory_order_acquire);
 				CMTS_UNLIKELY_IF(k == cmts_capacity)
 					continue;
 				index = k + 1;
-				CMTS_LIKELY_IF(fence_pool_size.compare_exchange_strong(k, index, memory_order_release, memory_order_relaxed))
+				CMTS_LIKELY_IF(fence_pool_size.compare_exchange_strong(k, index, std::memory_order_release, std::memory_order_relaxed))
 					break;
 			}
 		}
@@ -879,12 +878,12 @@ extern "C"
 		pool_control_block c, nc;
 		while (1)
 		{
-			c = fence_pool_ctrl.load(memory_order_acquire);
+			c = fence_pool_ctrl.load(std::memory_order_acquire);
 			nc = c;
 			fence_pool[index].pool_next = nc.freelist;
 			nc.freelist = index;
 			++nc.generation;
-			CMTS_LIKELY_IF(fence_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+			CMTS_LIKELY_IF(fence_pool_ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 				break;
 		}
 	}
@@ -916,12 +915,12 @@ extern "C"
 		pool_control_block c, nc;
 		while (1)
 		{
-			c = fence_pool_ctrl.load(memory_order_acquire);
+			c = fence_pool_ctrl.load(std::memory_order_acquire);
 			nc = c;
 			fence_pool[index].pool_next = nc.freelist;
 			nc.freelist = index;
 			++nc.generation;
-			CMTS_LIKELY_IF(fence_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+			CMTS_LIKELY_IF(fence_pool_ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 				break;
 		}
 	}
@@ -932,26 +931,26 @@ extern "C"
 		uint32_t index = (uint32_t)-1;
 		while (1)
 		{
-			while (counter_pool_size.load(memory_order_acquire) == cmts_capacity)
+			while (counter_pool_size.load(std::memory_order_acquire) == cmts_capacity)
 				_mm_pause();
 
-			c = counter_pool_ctrl.load(memory_order_acquire);
+			c = counter_pool_ctrl.load(std::memory_order_acquire);
 			CMTS_LIKELY_IF(c.freelist != (uint32_t)-1)
 			{
 				auto nc = c;
 				index = nc.freelist;
 				nc.freelist = counter_pool[index].pool_next;
 				++nc.generation;
-				CMTS_LIKELY_IF(counter_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+				CMTS_LIKELY_IF(counter_pool_ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 					break;
 			}
 			else
 			{
-				auto k = counter_pool_size.load(memory_order_acquire);
+				auto k = counter_pool_size.load(std::memory_order_acquire);
 				CMTS_UNLIKELY_IF(k == cmts_capacity)
 					continue;
 				index = k + 1;
-				CMTS_LIKELY_IF(counter_pool_size.compare_exchange_strong(k, index, memory_order_release, memory_order_relaxed))
+				CMTS_LIKELY_IF(counter_pool_size.compare_exchange_strong(k, index, std::memory_order_release, std::memory_order_relaxed))
 					break;
 			}
 		}
@@ -975,7 +974,7 @@ extern "C"
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
 		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
-		counter_pool[index].counter.fetch_add(1, memory_order_relaxed);
+		counter_pool[index].counter.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	void cmts_decrement_counter(cmts_counter_t counter)
@@ -984,7 +983,7 @@ extern "C"
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
 		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
-		counter_pool[index].counter.fetch_sub(1, memory_order_relaxed);
+		counter_pool[index].counter.fetch_sub(1, std::memory_order_relaxed);
 	}
 
 	void cmts_await_counter(cmts_counter_t counter)
@@ -1013,12 +1012,12 @@ extern "C"
 		pool_control_block c, nc;
 		while (1)
 		{
-			c = counter_pool_ctrl.load(memory_order_acquire);
+			c = counter_pool_ctrl.load(std::memory_order_acquire);
 			nc = c;
 			counter_pool[index].pool_next = nc.freelist;
 			nc.freelist = index;
 			++nc.generation;
-			CMTS_LIKELY_IF(counter_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+			CMTS_LIKELY_IF(counter_pool_ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 				break;
 		}
 	}
@@ -1033,12 +1032,12 @@ extern "C"
 		pool_control_block c, nc;
 		while (1)
 		{
-			c = counter_pool_ctrl.load(memory_order_acquire);
+			c = counter_pool_ctrl.load(std::memory_order_acquire);
 			nc = c;
 			counter_pool[index].pool_next = nc.freelist;
 			nc.freelist = index;
 			++nc.generation;
-			CMTS_LIKELY_IF(counter_pool_ctrl.compare_exchange_strong(c, nc, memory_order_release, memory_order_relaxed))
+			CMTS_LIKELY_IF(counter_pool_ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
 				break;
 		}
 	}
