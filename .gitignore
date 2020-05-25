@@ -1,16 +1,1 @@
-*.d
-
-*.slo
-*.lo
-*.o
-*.obj
-
-*.lib
-
-*.exe
-
-*.vcxproj.filters
-*.vcxproj.user
-
 .vs/
-bin/
