@@ -26,14 +26,18 @@
 	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef CMTS_INCLUDED
-#define CMTS_INCLUDED
+#ifndef CMTS_HEADER_INCLUDED
+#define CMTS_HEADER_INCLUDED
 
 #include <stdint.h>
 
-typedef void(*cmts_function_pointer_t)(void*);
-typedef uint64_t cmts_fence_t;
-typedef uint64_t cmts_counter_t;
+#ifndef CMTS_QUEUE_PRIORITY_COUNT
+#define CMTS_QUEUE_PRIORITY_COUNT 4
+#endif
+
+#ifndef CMTS_CALLING_CONVENTION
+#define CMTS_CALLING_CONVENTION
+#endif
 
 #ifdef __cplusplus
 typedef bool cmts_boolean_t;
@@ -41,56 +45,53 @@ typedef bool cmts_boolean_t;
 typedef _Bool cmts_boolean_t;
 #endif
 
-enum
-{
-	CMTS_MAX_TASKS = 1 << 24
-};
+typedef void(*cmts_function_pointer_t)(void*);
+typedef uint64_t cmts_fence_t;
+typedef uint64_t cmts_counter_t;
+
+#define CMTS_MAX_TASKS (1U << 24U)
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-	void			cmts_initialize(uint32_t max_tasks, uint32_t max_cpus);
-	void			cmts_halt();
-	void			cmts_resume();
-	void			cmts_signal_finalize();
-	void			cmts_finalize();
-	void			cmts_terminate();
-	cmts_boolean_t	cmts_is_running();
-	void			cmts_dispatch(cmts_function_pointer_t task_function, void* param, uint8_t priority_level);
-	void			cmts_yield();
-	void			cmts_exit();
-
-	cmts_fence_t	cmts_new_fence();
-	cmts_boolean_t	cmts_is_fence_valid(cmts_fence_t fence);
-	void			cmts_signal_fence(cmts_fence_t fence);
-	void			cmts_await_fence(cmts_fence_t fence);
-	void			cmts_await_fence_and_delete(cmts_fence_t fence);
-	void			cmts_delete_fence(cmts_fence_t fence);
-
-	cmts_counter_t	cmts_new_counter(uint32_t start_value);
-	cmts_boolean_t	cmts_is_counter_valid(cmts_counter_t counter);
-	void			cmts_increment_counter(cmts_counter_t counter);
-	void			cmts_decrement_counter(cmts_counter_t counter);
-	void			cmts_await_counter(cmts_counter_t counter);
-	void			cmts_await_counter_and_delete(cmts_counter_t counter);
-	void			cmts_delete_counter(cmts_counter_t counter);
-
-	void			cmts_dispatch_with_fence(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_fence_t fence);
-	void			cmts_dispatch_with_counter(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_counter_t counter);
-
-	uint32_t		cmts_current_task_id();
-	uint32_t		cmts_current_cpu();
-	uint32_t		cmts_used_cpu_count();
-	uint32_t		cmts_available_cpu_count();
+	void			CMTS_CALLING_CONVENTION cmts_initialize(uint32_t max_tasks, uint32_t max_cpus);
+	void			CMTS_CALLING_CONVENTION cmts_halt();
+	void			CMTS_CALLING_CONVENTION cmts_resume();
+	void			CMTS_CALLING_CONVENTION cmts_signal_finalize();
+	void			CMTS_CALLING_CONVENTION cmts_finalize();
+	void			CMTS_CALLING_CONVENTION cmts_terminate();
+	cmts_boolean_t	CMTS_CALLING_CONVENTION cmts_is_running();
+	void			CMTS_CALLING_CONVENTION cmts_dispatch(cmts_function_pointer_t task_function, void* param, uint8_t priority_level);
+	void			CMTS_CALLING_CONVENTION cmts_yield();
+	void			CMTS_CALLING_CONVENTION cmts_exit();
+	cmts_fence_t	CMTS_CALLING_CONVENTION cmts_new_fence();
+	cmts_boolean_t	CMTS_CALLING_CONVENTION cmts_is_fence_valid(cmts_fence_t fence);
+	void			CMTS_CALLING_CONVENTION cmts_signal_fence(cmts_fence_t fence);
+	void			CMTS_CALLING_CONVENTION cmts_await_fence(cmts_fence_t fence);
+	void			CMTS_CALLING_CONVENTION cmts_await_fence_and_delete(cmts_fence_t fence);
+	void			CMTS_CALLING_CONVENTION cmts_delete_fence(cmts_fence_t fence);
+	cmts_counter_t	CMTS_CALLING_CONVENTION cmts_new_counter(uint32_t start_value);
+	cmts_boolean_t	CMTS_CALLING_CONVENTION cmts_is_counter_valid(cmts_counter_t counter);
+	void			CMTS_CALLING_CONVENTION cmts_increment_counter(cmts_counter_t counter);
+	void			CMTS_CALLING_CONVENTION cmts_decrement_counter(cmts_counter_t counter);
+	void			CMTS_CALLING_CONVENTION cmts_await_counter(cmts_counter_t counter);
+	void			CMTS_CALLING_CONVENTION cmts_await_counter_and_delete(cmts_counter_t counter);
+	void			CMTS_CALLING_CONVENTION cmts_delete_counter(cmts_counter_t counter);
+	void			CMTS_CALLING_CONVENTION cmts_dispatch_with_fence(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_fence_t fence);
+	void			CMTS_CALLING_CONVENTION cmts_dispatch_with_counter(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_counter_t counter);
+	uint32_t		CMTS_CALLING_CONVENTION cmts_current_task_id();
+	uint32_t		CMTS_CALLING_CONVENTION cmts_current_cpu();
+	uint32_t		CMTS_CALLING_CONVENTION cmts_used_cpu_count();
+	uint32_t		CMTS_CALLING_CONVENTION cmts_available_cpu_count();
 
 #ifdef __cplusplus
 }
 #endif
 
-#ifdef CMTS_IMPLEMENTATION_WINDOWS
+#ifdef CMTS_INCLUDE_IMPLEMENTATION
 #include "cmts_windows.inl"
 #endif
 
-#endif //CMTS_INCLUDED
+#endif //CMTS_HEADER_INCLUDED
