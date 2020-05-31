@@ -28,7 +28,7 @@
 
 
 
-#ifdef _WIN32
+#include "cmts.h"
 #include <atomic>
 #include <intrin.h>
 #define WIN32_LEAN_AND_MEAN
@@ -134,12 +134,15 @@ union flag_type
 
 struct lockfree_queue
 {
-	struct control_block
+	struct alignas(uint64_t) control_block
 	{
-		uint8_t head, tail, generation, unused;
+		uint64_t
+			head : 24,
+			tail : 24,
+			generation : 8;
 
-		constexpr bool operator!=(control_block other) const { return !memcmp(this, &other, sizeof(control_block)); }
-		constexpr bool operator==(control_block other) const { return !this->operator!=(other); }
+		bool operator==(control_block other) const { return !memcmp(this, &other, sizeof(control_block)); }
+		bool operator!=(control_block other) const { return !this->operator==(other); }
 	};
 
 	alignas(64) std::atomic<control_block> ctrl;
@@ -170,7 +173,7 @@ struct lockfree_queue
 			CMTS_UNLIKELY_IF(nc.head == c.tail)
 				return false;
 			++nc.generation;
-			CMTS_LIKELY_IF((*(const control_block*)&ctrl) == c)
+			CMTS_LIKELY_IF(ctrl.load(std::memory_order_relaxed) == c)
 			{
 				CMTS_LIKELY_IF(ctrl.compare_exchange_strong(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
 				{
@@ -200,7 +203,7 @@ struct lockfree_queue
 			nc = c;
 			++nc.tail;
 			++nc.generation;
-			CMTS_LIKELY_IF((*(const control_block*)&ctrl) == c)
+			CMTS_LIKELY_IF(ctrl.load(std::memory_order_relaxed) == c)
 			{
 				CMTS_LIKELY_IF(ctrl.compare_exchange_strong(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
 				{
@@ -225,7 +228,11 @@ using queue_type = lockfree_queue;
 
 struct alignas(64) fiber_synchronization_state
 {
-	struct alignas(8) wait_list_control_block { uint32_t head, generation; };
+	struct alignas(uint64_t) wait_list_control_block
+	{
+		uint32_t head;
+		uint32_t generation;
+	};
 
 	uint32_t fence_next = (uint32_t)-1;
 	uint32_t fence_id = (uint32_t)-1;
@@ -250,43 +257,49 @@ struct alignas(64) fiber_state
 
 struct fence_state
 {
-	union { std::atomic<bool> flag; bool flag_unsafe; };
-	uint32_t generation;
-	uint32_t owning_fiber;
+	union
+	{
+		std::atomic<bool> flag;
+		bool flag_unsafe;
+	};
+
+	std::atomic<uint32_t> generation;
 	uint32_t pool_next;
 
-	CMTS_INLINE_ALWAYS
-		fence_state()
+	CMTS_INLINE_ALWAYS fence_state()
 	{
-#ifdef CMTS_DEBUG
-		owning_fiber = (uint32_t)-1;
-#endif
 		pool_next = (uint32_t)-1;
 	}
 
-	CMTS_INLINE_ALWAYS ~fence_state() { }
+	CMTS_INLINE_ALWAYS ~fence_state()
+	{
+	}
+
 };
 
 struct counter_state
 {
-	union { std::atomic<uint32_t> counter; uint32_t counter_unsafe; };
-	uint32_t generation;
-	uint32_t owning_fiber;
+	union
+	{
+		std::atomic<uint32_t> counter;
+		uint32_t counter_unsafe;
+	};
+
+	std::atomic<uint32_t> generation;
 	uint32_t pool_next;
 
-	CMTS_INLINE_ALWAYS
-		counter_state()
+	CMTS_INLINE_ALWAYS counter_state()
 	{
-#ifdef CMTS_DEBUG
-		owning_fiber = (uint32_t)-1;
-#endif
 		pool_next = (uint32_t)-1;
 	}
 
-	CMTS_INLINE_ALWAYS ~counter_state() { }
+	CMTS_INLINE_ALWAYS ~counter_state()
+	{
+	}
+
 };
 
-struct pool_control_block
+struct alignas(uint64_t) pool_control_block
 {
 	uint32_t freelist = (uint32_t)-1;
 	uint32_t generation = 0;
@@ -429,10 +442,13 @@ template <typename T>
 CMTS_INLINE_NEVER
 static void wait_for_available_resource(T& pool_size)
 {
-	typedef void(F*)();
-	const F f[2] { cmts_yield, SwitchToThread };
 	while (pool_size.load(std::memory_order_relaxed) == max_tasks)
-		f[root_fiber == nullptr]();
+	{
+		if (root_fiber != nullptr)
+			cmts_yield();
+		else
+			SwitchToThread();
+	}
 }
 
 CMTS_INLINE_ALWAYS
@@ -561,7 +577,10 @@ static void fence_conditionally_wake_fibers(uint32_t fiber)
 	fiber_synchronization_state& s = fiber_sync[fiber];
 	CMTS_ASSERT(s.fence_id != (uint32_t)-1, "Invalid fiber_sync.counter_id value.");
 	CMTS_LIKELY_IF(!fence_pool[s.fence_id].flag.exchange(true, std::memory_order_release))
+	{
+		fence_pool[s.fence_id].generation.fetch_add(1, std::memory_order_release);
 		fence_wake_fibers(s.fence_id);
+	}
 }
 
 CMTS_INLINE_NEVER
@@ -582,7 +601,10 @@ static void counter_conditionally_wake_fibers(uint32_t fiber)
 	fiber_synchronization_state& s = fiber_sync[fiber];
 	CMTS_ASSERT(s.counter_id != (uint32_t)-1, "Invalid fiber_sync.counter_id value.");
 	CMTS_LIKELY_IF(counter_pool[s.counter_id].counter.fetch_sub(1, std::memory_order_release) == 0)
+	{
+		counter_pool[s.counter_id].generation.fetch_add(1, std::memory_order_release);
 		counter_wake_fibers(s.counter_id);
+	}
 }
 
 static void __stdcall fiber_main(fiber_state* f)
@@ -653,7 +675,9 @@ extern "C"
 		fiber_sync = (fiber_synchronization_state*)(counter_pool + max_fibers);
 		uint8_t* const qptr = (uint8_t*)(fiber_sync + max_fibers);
 		for (uint32_t i = 0; i < CMTS_QUEUE_PRIORITY_COUNT; ++i)
+		{
 			queues[i].initialize(qptr + i * qss);
+		}
 		for (uint32_t i = 0; i < max_fibers; ++i)
 		{
 			new (&fiber_pool[i]) fiber_state();
@@ -762,18 +786,18 @@ extern "C"
 			}
 			else
 			{
-				uint32_t k = fence_pool_size.load(std::memory_order_acquire);
-				CMTS_UNLIKELY_IF(k == max_tasks)
+				index = fence_pool_size.load(std::memory_order_acquire);
+				CMTS_UNLIKELY_IF(index == max_tasks)
 					continue;
-				index = k + 1;
-				CMTS_LIKELY_IF(fence_pool_size.compare_exchange_strong(k, index, std::memory_order_release, std::memory_order_relaxed))
+				CMTS_LIKELY_IF(fence_pool_size.compare_exchange_strong(index, index + 1, std::memory_order_release, std::memory_order_relaxed))
 					break;
 			}
 		}
 
 		fence_state& f = fence_pool[index];
 		f.flag_unsafe = false;
-		const uint32_t generation = f.generation;
+		f.generation.fetch_add(1, std::memory_order_acquire);
+		const uint32_t generation = f.generation.load(std::memory_order_acquire);
 		return make_user_handle(index, generation);
 	}
 
@@ -781,25 +805,21 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
-		const bool a = fence_pool[index].owning_fiber != (uint32_t)-1;
-		const bool b = fence_pool[index].generation == generation;
-		return a & b;
+		return fence_pool[index].generation == generation;
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_signal_fence(cmts_fence_t fence)
 	{
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
-		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
 		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
-		fence_wake_fibers(fence_pool[index].owning_fiber);
+		fence_wake_fibers(index);
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_delete_fence(cmts_fence_t fence)
 	{
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
-		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
 		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
 		new (&fence_pool[index]) fence_state();
 		pool_control_block c, nc;
@@ -819,8 +839,8 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
-		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
-		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
+		if (fence_pool[index].generation != generation)
+			return;
 		auto& f = fiber_pool[current_fiber];
 		f.sleeping = true;
 		append_fence_wait_list(current_fiber, index);
@@ -831,8 +851,8 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
-		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
-		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
+		if (fence_pool[index].generation != generation)
+			return;
 		auto& f = fiber_pool[current_fiber];
 		f.sleeping = true;
 		append_fence_wait_list(current_fiber, index);
@@ -871,16 +891,18 @@ extern "C"
 			}
 			else
 			{
-				auto k = counter_pool_size.load(std::memory_order_acquire);
-				CMTS_UNLIKELY_IF(k == max_tasks)
+				index = counter_pool_size.load(std::memory_order_acquire);
+				CMTS_UNLIKELY_IF(index == max_tasks)
 					continue;
-				index = k + 1;
-				CMTS_LIKELY_IF(counter_pool_size.compare_exchange_strong(k, index, std::memory_order_release, std::memory_order_relaxed))
+				CMTS_LIKELY_IF(counter_pool_size.compare_exchange_strong(index, index + 1, std::memory_order_release, std::memory_order_relaxed))
 					break;
 			}
 		}
-		counter_pool[index].counter_unsafe = start_value;
-		const uint32_t generation = counter_pool[index].generation;
+
+		counter_state& s = counter_pool[index];
+		s.counter_unsafe = start_value;
+		s.generation.fetch_add(1, std::memory_order_acquire);
+		const uint32_t generation = s.generation.load(std::memory_order_acquire);
 		return make_user_handle(index, generation);
 	}
 
@@ -888,16 +910,13 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		const bool a = counter_pool[index].owning_fiber != (uint32_t)-1;
-		const bool b = counter_pool[index].generation == generation;
-		return a & b;
+		return counter_pool[index].generation == generation;
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_increment_counter(cmts_counter_t counter)
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
 		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.fetch_add(1, std::memory_order_relaxed);
 	}
@@ -906,7 +925,6 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
 		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.fetch_sub(1, std::memory_order_relaxed);
 	}
@@ -915,9 +933,10 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
-		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+			return;
 		auto& f = fiber_pool[current_fiber];
+		if (counter_pool[index].generation != generation)
+			return;
 		f.sleeping = true;
 		append_counter_wait_list(current_fiber, index);
 		cmts_yield();
@@ -927,8 +946,8 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
-		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		if (counter_pool[index].generation != generation)
+			return;
 		auto& f = fiber_pool[current_fiber];
 		f.sleeping = true;
 		append_counter_wait_list(current_fiber, index);
@@ -951,7 +970,6 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(counter_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
 		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		new (&counter_pool[index]) counter_state();
 		pool_control_block c, nc;
@@ -971,7 +989,6 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
-		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid fence handle.");
 		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
 		const uint32_t id = new_fiber();
 		auto& f = fiber_pool[id];
@@ -979,7 +996,6 @@ extern "C"
 		f.parameter = param;
 		f.has_fence = true;
 		fiber_sync[id].fence_id = index;
-		fence_pool[index].owning_fiber = current_fiber;
 		CMTS_UNLIKELY_IF(f.handle == nullptr)
 			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
 		push_fiber(id, f.priority);
@@ -989,15 +1005,13 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(fence_pool[index].owning_fiber != (uint32_t)-1, "Invalid counter handle.");
-		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		const uint32_t id = new_fiber();
 		auto& f = fiber_pool[id];
 		f.function = task_function;
 		f.parameter = param;
 		f.has_counter = true;
 		fiber_sync[id].counter_id = index;
-		counter_pool[index].owning_fiber = current_fiber;
 		CMTS_UNLIKELY_IF(f.handle == nullptr)
 			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
 		push_fiber(id, f.priority);
@@ -1036,4 +1050,3 @@ extern "C"
 #undef CMTS_ASSUME
 #undef CMTS_INLINE_ALWAYS
 #undef CMTS_INLINE_NEVER
-#endif

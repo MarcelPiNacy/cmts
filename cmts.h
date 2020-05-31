@@ -49,7 +49,7 @@ typedef void(*cmts_function_pointer_t)(void*);
 typedef uint64_t cmts_fence_t;
 typedef uint64_t cmts_counter_t;
 
-#define CMTS_MAX_TASKS (1U << 24U)
+#define CMTS_MAX_TASKS ((uint32_t)(1U << 24U))
 
 #ifdef __cplusplus
 extern "C"
