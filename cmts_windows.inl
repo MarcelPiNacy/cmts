@@ -36,7 +36,11 @@
 #define NOMINMAX
 #include <Windows.h>
 
-static const uint32_t cache_line_size_log2 = []()
+alignas(64) static thread_local uint32_t			current_fiber;
+static thread_local HANDLE							root_fiber;
+static thread_local uint32_t						processor_index;
+
+static const uint32_t cache_line_size_log2 = []() noexcept
 {
 	DWORD k = 0;
 	GetLogicalProcessorInformation(nullptr, &k);
@@ -57,10 +61,6 @@ static uint32_t										max_tasks;
 static uint32_t										used_cpu_count;
 static uint32_t										queue_shard_mod_mask;
 static HANDLE*										threads;
-
-static thread_local uint32_t						processor_index;
-static thread_local HANDLE							root_fiber;
-static thread_local uint32_t						current_fiber;
 
 
 #if (defined(DEBUG) || defined(_DEBUG) || !defined(NDEBUG)) && !defined(CMTS_DEBUG)
@@ -104,66 +104,68 @@ static_assert(false, "CMTS: Unsupported compiler.");
 
 
 #ifdef CMTS_DEBUG
-
-CMTS_INLINE_NEVER
-static void cmts_assertion_handler(const char* const message)
+CMTS_INLINE_NEVER static void cmts_assertion_handler(const char* const message) noexcept
 {
-	for (uint32_t i = 0; i < used_cpu_count; ++i)
-		CMTS_LIKELY_IF(i != processor_index)
-			SuspendThread(threads[i]);
+	cmts_halt();
 	OutputDebugStringA(message);
 	DebugBreak();
 	abort();
 }
-
 #define CMTS_ASSERT(expression, message) CMTS_UNLIKELY_IF (!(expression)) cmts_assertion_handler("CMTS:\t" message "\n")
-
 #else
-
 #define CMTS_ASSERT(expression, message) CMTS_ASSUME((expression) == true)
-
 #endif
+
+#define CMTS_ASSERT_IS_TASK CMTS_ASSERT(cmts_is_task(), "CMTS: function " __FUNCTION__ " must be called from a task.")
 
 
 
 union flag_type
 {
-	std::atomic<bool>	safe;
-	bool				unsafe;
+	std::atomic_bool safe;
+	bool unsafe;
 };
 
 struct lockfree_queue
 {
-	struct alignas(uint64_t) control_block
+	struct alignas(64) control_block
 	{
-		uint64_t
-			head : 24,
-			tail : 24,
-			generation : 8;
+		uint64_t head : 24, tail : 24, generation : 8;
 
-		bool operator==(control_block other) const { return !memcmp(this, &other, sizeof(control_block)); }
-		bool operator!=(control_block other) const { return !this->operator==(other); }
+		CMTS_INLINE_ALWAYS
+		bool operator==(const control_block& other) const noexcept
+		{
+			return *(const uint64_t*)this == *(const uint64_t*)&other;
+		}
+
+		CMTS_INLINE_ALWAYS
+		bool operator!=(const control_block& other) const noexcept
+		{
+			return !this->operator==(other);
+		}
 	};
 
 	alignas(64) std::atomic<control_block> ctrl;
 	alignas(64) std::atomic<uint32_t>* values;
 
-	static uint32_t adjust_index(uint32_t index)
+	CMTS_INLINE_ALWAYS
+	static uint32_t adjust_index(const uint32_t index) noexcept
 	{
 		const uint32_t sl = cache_line_size_log2;
 		const uint32_t sr = 24 - sl;
 		const uint32_t high = index << sl;
-		const uint32_t low = index >> sl;
+		const uint32_t low = index >> sr;
 		return (high | low) & queue_shard_mod_mask;
 	}
 
-	void initialize(void* memory)
+	CMTS_INLINE_ALWAYS
+	void initialize(void* memory) noexcept
 	{
 		values = (std::atomic<uint32_t>*)memory;
 		memset(values, 255, max_tasks * sizeof(std::atomic<uint32_t>));
 	}
 
-	bool store(uint32_t value)
+	bool store(const uint32_t value) noexcept
 	{
 		control_block c, nc;
 		while (true)
@@ -181,18 +183,17 @@ struct lockfree_queue
 					uint32_t empty = (uint32_t)-1;
 					while (true)
 					{
-						CMTS_LIKELY_IF(values[i].load(std::memory_order_relaxed) == empty)
-							CMTS_LIKELY_IF(values[i].compare_exchange_weak(empty, value, std::memory_order_release, std::memory_order_relaxed))
+						CMTS_LIKELY_IF(values[i].load(std::memory_order_acquire) == empty)
+							CMTS_LIKELY_IF(values[i].compare_exchange_strong(empty, value, std::memory_order_release, std::memory_order_relaxed))
 								return true;
 						_mm_pause();
 					}
 				}
 			}
-			_mm_pause();
 		}
 	}
 
-	bool fetch(uint32_t& out)
+	bool fetch(uint32_t& out) noexcept
 	{
 		control_block c, nc;
 		while (true)
@@ -213,93 +214,119 @@ struct lockfree_queue
 					{
 						out = values[i].load(std::memory_order_acquire);
 						CMTS_LIKELY_IF(out != empty)
-							CMTS_LIKELY_IF(values[i].compare_exchange_weak(out, empty, std::memory_order_release, std::memory_order_relaxed))
+							CMTS_LIKELY_IF(values[i].compare_exchange_strong(out, empty, std::memory_order_release, std::memory_order_relaxed))
 								return true;
 						_mm_pause();
 					}
 				}
 			}
-			_mm_pause();
 		}
 	}
 };
 
-using queue_type = lockfree_queue;
-
-struct alignas(64) fiber_synchronization_state
+struct alignas(8) wait_list_control_block
 {
-	struct alignas(uint64_t) wait_list_control_block
-	{
-		uint32_t head;
-		uint32_t generation;
-	};
+	uint32_t head;
+	uint32_t generation;
 
-	uint32_t fence_next = (uint32_t)-1;
-	uint32_t fence_id = (uint32_t)-1;
-	uint32_t counter_id = (uint32_t)-1;
-	uint32_t counter_next = (uint32_t)-1;
-	std::atomic<wait_list_control_block> fence_wait_list = wait_list_control_block{ (uint32_t)-1, 0 };
-	std::atomic<wait_list_control_block> counter_wait_list = wait_list_control_block{ (uint32_t)-1, 0 };
+	CMTS_INLINE_ALWAYS
+	bool operator==(const wait_list_control_block& other) const noexcept
+	{
+		return *(const uint64_t*)this == *(const uint64_t*)&other;
+	}
+
+	CMTS_INLINE_ALWAYS
+	bool operator!=(const wait_list_control_block& other) const noexcept
+	{
+		return !this->operator==(other);
+	}
 };
 
 struct alignas(64) fiber_state
 {
-	HANDLE					handle;
-	cmts_function_pointer_t function;
-	void*					parameter;
-	uint32_t				pool_next = (uint32_t)-1;
-	uint32_t				priority : 3,
-							has_fence : 1,
-							has_counter : 1,
-							sleeping : 1,
-							done : 1;
+	using F = cmts_function_pointer_t;
+
+	HANDLE		handle;
+	F			function;
+	void*		parameter;
+	uint32_t	pool_next;
+	uint32_t	priority : 3,
+				has_fence : 1,
+				has_counter : 1,
+				sleeping : 1,
+				done : 1;
+
+	uint32_t	fence_id;
+	uint32_t	counter_id;
+
+	uint32_t	fence_next;
+	uint32_t	counter_next;
+
+	CMTS_INLINE_ALWAYS
+	void reset() noexcept
+	{
+		has_fence = false;
+		has_counter = false;
+		sleeping = false;
+		done = false;
+		pool_next = (uint32_t)-1;
+		fence_id = (uint32_t)-1;
+		counter_id = (uint32_t)-1;
+		fence_next = (uint32_t)-1;
+		counter_next = (uint32_t)-1;
+	}
+
 };
 
-struct fence_state
+struct alignas(64) fence_state
 {
 	union
 	{
-		std::atomic<bool> flag;
+		std::atomic_bool flag;
 		bool flag_unsafe;
 	};
-
-	std::atomic<uint32_t> generation;
+	std::atomic_uint32_t generation;
 	uint32_t pool_next;
+	union
+	{
+		std::atomic<wait_list_control_block> wait_list;
+		wait_list_control_block wait_list_unsafe;
+	};
 
-	CMTS_INLINE_ALWAYS fence_state()
+	CMTS_INLINE_ALWAYS
+	void reset() noexcept
 	{
 		pool_next = (uint32_t)-1;
-	}
-
-	CMTS_INLINE_ALWAYS ~fence_state()
-	{
+		wait_list_unsafe.head = (uint32_t)-1;
 	}
 
 };
 
-struct counter_state
+struct alignas(64) counter_state
 {
 	union
 	{
-		std::atomic<uint32_t> counter;
+		std::atomic_uint32_t counter;
 		uint32_t counter_unsafe;
 	};
-
-	std::atomic<uint32_t> generation;
+	std::atomic_uint32_t generation;
 	uint32_t pool_next;
+	union
+	{
+		std::atomic<wait_list_control_block> wait_list;
+		wait_list_control_block wait_list_unsafe;
+	};
 
-	CMTS_INLINE_ALWAYS counter_state()
+	CMTS_INLINE_ALWAYS
+	void reset() noexcept
 	{
 		pool_next = (uint32_t)-1;
-	}
-
-	CMTS_INLINE_ALWAYS ~counter_state()
-	{
+		wait_list_unsafe.head = (uint32_t)-1;
 	}
 
 };
 
-struct alignas(uint64_t) pool_control_block
+struct alignas(8) pool_control_block
 {
 	uint32_t freelist = (uint32_t)-1;
 	uint32_t generation = 0;
@@ -312,19 +339,14 @@ struct alignas(uint64_t) pool_control_block
 static fiber_state* fiber_pool;
 static fence_state* fence_pool;
 static counter_state* counter_pool;
-static fiber_synchronization_state* fiber_sync;
 
 alignas(64) static std::atomic<pool_control_block>	fiber_pool_ctrl;
 alignas(64) static std::atomic<uint32_t>			fiber_pool_size;
-
 alignas(64) static std::atomic<pool_control_block>	fence_pool_ctrl;
 alignas(64) static std::atomic<uint32_t>			fence_pool_size;
-
 alignas(64) static std::atomic<pool_control_block>	counter_pool_ctrl;
 alignas(64) static std::atomic<uint32_t>			counter_pool_size;
-
-alignas(64) static queue_type						queues[CMTS_QUEUE_PRIORITY_COUNT];
-
+alignas(64) static lockfree_queue					queues[CMTS_QUEUE_PRIORITY_COUNT];
 alignas(64) static flag_type						should_continue = {};
 
 //!@region thread-shared state group 2
@@ -332,13 +354,13 @@ alignas(64) static flag_type						should_continue = {};
 
 
 CMTS_INLINE_ALWAYS
-static uint64_t make_user_handle(uint32_t value, uint32_t generation)
+static uint64_t make_user_handle(const uint32_t value, const uint32_t generation) noexcept
 {
 	return (uint64_t)((uint64_t)value | ((uint64_t)generation << 32));
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t timestamp_frequency()
+static uint32_t timestamp_frequency() noexcept
 {
 	LARGE_INTEGER i;
 	QueryPerformanceFrequency(&i);
@@ -346,7 +368,7 @@ static uint32_t timestamp_frequency()
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t timestamp()
+static uint32_t timestamp() noexcept
 {
 	LARGE_INTEGER i;
 	QueryPerformanceCounter(&i);
@@ -354,95 +376,80 @@ static uint32_t timestamp()
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t timestamp_ns()
+static uint32_t timestamp_ns() noexcept
 {
 	return (timestamp() * 1000'000'000) / timestamp_frequency();
 }
 
 CMTS_INLINE_NEVER
-static void conditionally_exit_thread()
+static void conditionally_exit_thread() noexcept
 {
 	CMTS_UNLIKELY_IF(!should_continue.safe.load(std::memory_order_acquire))
 		ExitThread(0);
 }
 
 CMTS_INLINE_ALWAYS
-static void append_fence_wait_list(uint32_t fiber, uint32_t value)
+static bool counter_append_wait_list(counter_state& state, const uint32_t fiber) noexcept
 {
-	fiber_synchronization_state::wait_list_control_block c, nc;
-	fiber_synchronization_state& s = fiber_sync[fiber];
+	wait_list_control_block c, nc;
 	while (true)
 	{
-		nc = c = s.fence_wait_list.load(std::memory_order_acquire);
-		s.fence_next = nc.head;
-		nc.head = value;
+		if (state.counter.load(std::memory_order_acquire) == 0)
+			return false;
+		c = nc = state.wait_list.load(std::memory_order_acquire);
+		fiber_pool[fiber].fence_next = c.head;
+		nc.head = fiber;
 		++nc.generation;
-		CMTS_LIKELY_IF(s.fence_wait_list.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
+		CMTS_LIKELY_IF(state.wait_list.load(std::memory_order_relaxed) == c)
+			CMTS_LIKELY_IF(state.wait_list.compare_exchange_strong(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
+				break;
+	}
+	return true;
+}
+
+CMTS_INLINE_ALWAYS
+static bool fence_append_wait_list(fence_state& state, const uint32_t fiber) noexcept
+{
+	wait_list_control_block c, nc;
+	while (true)
+	{
+		if (state.flag.load(std::memory_order_acquire))
+			return false;
+		c = nc = state.wait_list.load(std::memory_order_acquire);
+		fiber_pool[fiber].fence_next = c.head;
+		nc.head = fiber;
+		++nc.generation;
+		CMTS_LIKELY_IF(state.wait_list.load(std::memory_order_relaxed) == c)
+			CMTS_LIKELY_IF(state.wait_list.compare_exchange_strong(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
+				break;
+	}
+	return true;
+}
+
+CMTS_INLINE_ALWAYS
+static uint32_t fetch_wait_list(std::atomic<wait_list_control_block>& ctrl) noexcept
+{
+	uint32_t r;
+	wait_list_control_block c, nc;
+	while (true)
+	{
+		c = nc = ctrl.load(std::memory_order_acquire);
+		r = c.head;
+		if (r == (uint32_t)-1)
 			break;
-		_mm_pause();
-	}
-}
-
-CMTS_INLINE_ALWAYS
-static uint32_t fetch_fence_wait_list(uint32_t fiber)
-{
-	fiber_synchronization_state::wait_list_control_block c, nc;
-	fiber_synchronization_state& s = fiber_sync[fiber];
-	while (true)
-	{
-		nc = c = s.fence_wait_list.load(std::memory_order_acquire);
-		const uint32_t r = c.head;
-		CMTS_UNLIKELY_IF(r == (uint32_t)-1)
-			return (uint32_t)-1;
-		nc.head = fiber_sync[nc.head].fence_next;
+		nc.head = fiber_pool[c.head].fence_next;
 		++nc.generation;
-		CMTS_LIKELY_IF(s.fence_wait_list.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
-			return r;
-		_mm_pause();
+		CMTS_LIKELY_IF(ctrl.load(std::memory_order_relaxed) == c)
+			CMTS_LIKELY_IF(ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
+				break;
 	}
+	return r;
 }
 
-CMTS_INLINE_ALWAYS
-static void append_counter_wait_list(uint32_t fiber, uint32_t value)
-{
-	fiber_synchronization_state::wait_list_control_block c, nc;
-	fiber_synchronization_state& s = fiber_sync[fiber];
-	while (true)
-	{
-		nc = c = s.counter_wait_list.load(std::memory_order_acquire);
-		s.fence_next = nc.head;
-		nc.head = value;
-		++nc.generation;
-		CMTS_LIKELY_IF(s.counter_wait_list.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
-			break;
-		_mm_pause();
-	}
-}
-
-CMTS_INLINE_ALWAYS
-static uint32_t fetch_counter_wait_list(uint32_t fiber)
-{
-	fiber_synchronization_state::wait_list_control_block c, nc;
-	fiber_synchronization_state& s = fiber_sync[fiber];
-	while (true)
-	{
-		nc = c = s.counter_wait_list.load(std::memory_order_acquire);
-		const uint32_t r = c.head;
-		CMTS_UNLIKELY_IF(r == (uint32_t)-1)
-			return (uint32_t)-1;
-		nc.head = fiber_sync[nc.head].fence_next;
-		++nc.generation;
-		CMTS_LIKELY_IF(s.counter_wait_list.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
-			return r;
-		_mm_pause();
-	}
-}
-
-template <typename T>
 CMTS_INLINE_NEVER
-static void wait_for_available_resource(T& pool_size)
+static void wait_for_available_resource(const std::atomic_uint32_t& pool_size) noexcept
 {
-	while (pool_size.load(std::memory_order_relaxed) == max_tasks)
+	while (pool_size.load(std::memory_order_acquire) == max_tasks)
 	{
 		if (root_fiber != nullptr)
 			cmts_yield();
@@ -452,7 +459,7 @@ static void wait_for_available_resource(T& pool_size)
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t new_fiber()
+static uint32_t new_fiber() noexcept
 {
 	pool_control_block c, nc;
 	uint32_t r = (uint32_t)-1;
@@ -460,6 +467,7 @@ static uint32_t new_fiber()
 	{
 		CMTS_UNLIKELY_IF(fiber_pool_size.load(std::memory_order_acquire) == max_tasks)
 			wait_for_available_resource(fiber_pool_size);
+
 		c = fiber_pool_ctrl.load(std::memory_order_acquire);
 		CMTS_LIKELY_IF(c.freelist != (uint32_t)-1)
 		{
@@ -485,11 +493,11 @@ static uint32_t new_fiber()
 }
 
 CMTS_INLINE_ALWAYS
-static void delete_fiber(uint32_t fiber)
+static void delete_fiber(const uint32_t fiber) noexcept
 {
 	fiber_state& f = fiber_pool[fiber];
 	HANDLE h = f.handle;
-	new (&f) fiber_state();
+	f.reset();
 	f.handle = h;
 	pool_control_block c, nc;
 	while (true)
@@ -506,7 +514,7 @@ static void delete_fiber(uint32_t fiber)
 }
 
 CMTS_INLINE_ALWAYS
-static void push_fiber(uint32_t fiber, uint8_t priority)
+static void push_fiber(const uint32_t fiber, const uint8_t priority) noexcept
 {
 	while (true)
 	{
@@ -518,8 +526,51 @@ static void push_fiber(uint32_t fiber, uint8_t priority)
 	}
 }
 
+CMTS_INLINE_NEVER
+static void fence_wake_fibers(const uint32_t fence_index) noexcept
+{
+	uint32_t i;
+	while (true)
+	{
+		i = fetch_wait_list(fence_pool[fence_index].wait_list);
+		CMTS_UNLIKELY_IF(i == (uint32_t)-1)
+			break;
+		fiber_pool[i].sleeping = false;
+		push_fiber(i, fiber_pool[i].priority);
+	}
+}
+
 CMTS_INLINE_ALWAYS
-static uint32_t fetch_fiber()
+static void fence_conditionally_wake_fibers(const uint32_t fence_index) noexcept
+{
+	CMTS_LIKELY_IF(!fence_pool[fence_index].flag.exchange(true, std::memory_order_acquire))
+		fence_wake_fibers(fence_index);
+}
+
+CMTS_INLINE_NEVER
+static void counter_wake_fibers(const uint32_t counter_index) noexcept
+{
+	uint32_t i;
+	while (true)
+	{
+		i = fetch_wait_list(counter_pool[counter_index].wait_list);
+		CMTS_UNLIKELY_IF(i == (uint32_t)-1)
+			break;
+		fiber_pool[i].sleeping = false;
+		push_fiber(i, fiber_pool[i].priority);
+	}
+}
+
+CMTS_INLINE_ALWAYS
+static void counter_conditionally_wake_fibers(const uint32_t counter_index) noexcept
+{
+	const uint32_t value = counter_pool[counter_index].counter.fetch_sub(1, std::memory_order_acquire) - 1;
+	CMTS_LIKELY_IF(value == 0)
+		counter_wake_fibers(counter_index);
+}
+
+CMTS_INLINE_ALWAYS
+static uint32_t fetch_fiber() noexcept
 {
 	uint32_t threshold = 64;
 	const uint32_t start = timestamp_ns();
@@ -530,7 +581,7 @@ static uint32_t fetch_fiber()
 	{
 		CMTS_UNLIKELY_IF(!should_continue.unsafe)
 			conditionally_exit_thread();
-		for (queue_type& q : queues)
+		for (lockfree_queue& q : queues)
 		{
 			uint32_t r;
 			CMTS_LIKELY_IF(q.fetch(r))
@@ -559,74 +610,29 @@ static uint32_t fetch_fiber()
 	}
 }
 
-CMTS_INLINE_NEVER
-static void fence_wake_fibers(uint32_t fence)
+static void __stdcall fiber_main(void* const param) noexcept
 {
-	while (true)
-	{
-		const uint32_t n = fetch_fence_wait_list(fence);
-		CMTS_UNLIKELY_IF(n == (uint32_t)-1)
-			break;
-		push_fiber(n, fiber_pool[n].priority);
-	}
-}
-
-CMTS_INLINE_ALWAYS
-static void fence_conditionally_wake_fibers(uint32_t fiber)
-{
-	fiber_synchronization_state& s = fiber_sync[fiber];
-	CMTS_ASSERT(s.fence_id != (uint32_t)-1, "Invalid fiber_sync.counter_id value.");
-	CMTS_LIKELY_IF(!fence_pool[s.fence_id].flag.exchange(true, std::memory_order_release))
-	{
-		fence_pool[s.fence_id].generation.fetch_add(1, std::memory_order_release);
-		fence_wake_fibers(s.fence_id);
-	}
-}
-
-CMTS_INLINE_NEVER
-static void counter_wake_fibers(uint32_t fence)
-{
-	while (true)
-	{
-		const uint32_t n = fetch_counter_wait_list(fence);
-		CMTS_UNLIKELY_IF(n == (uint32_t)-1)
-			break;
-		push_fiber(n, fiber_pool[n].priority);
-	}
-}
-
-CMTS_INLINE_ALWAYS
-static void counter_conditionally_wake_fibers(uint32_t fiber)
-{
-	fiber_synchronization_state& s = fiber_sync[fiber];
-	CMTS_ASSERT(s.counter_id != (uint32_t)-1, "Invalid fiber_sync.counter_id value.");
-	CMTS_LIKELY_IF(counter_pool[s.counter_id].counter.fetch_sub(1, std::memory_order_release) == 0)
-	{
-		counter_pool[s.counter_id].generation.fetch_add(1, std::memory_order_release);
-		counter_wake_fibers(s.counter_id);
-	}
-}
-
-static void __stdcall fiber_main(fiber_state* f)
-{
+	fiber_state& f = *(fiber_state*)param;
 	while (true)
 	{
 		CMTS_UNLIKELY_IF(!should_continue.unsafe)
 			conditionally_exit_thread();
-		f->function(f->parameter);
-		f->done = true;
+		f.function(f.parameter);
+		f.done = true;
 		SwitchToFiber(root_fiber);
 	}
 }
 
-static DWORD __stdcall thread_main(void* param)
+static DWORD __stdcall thread_main(void* const param) noexcept
 {
 	processor_index = (uint32_t)(size_t)param;
 	root_fiber = ConvertThreadToFiberEx(nullptr, FIBER_FLAG_FLOAT_SWITCH);
+
 	while (true)
 	{
 		CMTS_UNLIKELY_IF(!should_continue.unsafe)
 			conditionally_exit_thread();
+
 		current_fiber = fetch_fiber();
 		fiber_state& f = fiber_pool[current_fiber];
 		SwitchToFiber(f.handle);
@@ -637,11 +643,16 @@ static DWORD __stdcall thread_main(void* param)
 		}
 		else
 		{
-			if (f.has_fence)
-				fence_conditionally_wake_fibers(current_fiber);
-			if (f.has_counter)
-				counter_conditionally_wake_fibers(current_fiber);
+			const bool fence = f.has_fence;
+			const bool counter = f.has_counter;
+			const uint32_t fence_index = f.fence_id;
+			const uint32_t counter_index = f.counter_id;
 			delete_fiber(current_fiber);
+			if (fence)
+				fence_conditionally_wake_fibers(fence_index);
+			if (counter)
+				counter_conditionally_wake_fibers(counter_index);
+			
 		}
 	}
 }
@@ -653,7 +664,6 @@ extern "C"
 {
 #endif
 
-	// Initializes CMTS with the specified maximum number of tasks.
 	void CMTS_CALLING_CONVENTION cmts_initialize(uint32_t max_fibers, uint32_t max_cpus)
 	{
 		CMTS_ASSERT(max_fibers <= CMTS_MAX_TASKS, "The requested scheduler capacity passed to cmts_initialize exceeds the supported limit");
@@ -666,24 +676,22 @@ extern "C"
 		const uint32_t c = cmts_available_cpu_count();
 		used_cpu_count = max_cpus < c ? max_cpus : c;
 		const uint32_t qss = max_tasks * sizeof(std::atomic<uint32_t>);
-		const size_t allocation_size = (used_cpu_count * sizeof(HANDLE)) + (qss * CMTS_QUEUE_PRIORITY_COUNT) + (max_fibers * (sizeof(fiber_state) + sizeof(fence_state) + sizeof(counter_state) + sizeof(fiber_synchronization_state)));
+		const size_t allocation_size = (used_cpu_count * sizeof(HANDLE)) + (qss * CMTS_QUEUE_PRIORITY_COUNT) + (max_fibers * (sizeof(fiber_state) + sizeof(fence_state) + sizeof(counter_state)));
 		uint8_t* const ptr = (uint8_t*)VirtualAlloc(nullptr, allocation_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 		threads = (HANDLE*)ptr;
 		fiber_pool = (fiber_state*)(threads + used_cpu_count);
 		fence_pool = (fence_state*)(fiber_pool + max_fibers);
 		counter_pool = (counter_state*)(fence_pool + max_fibers);
-		fiber_sync = (fiber_synchronization_state*)(counter_pool + max_fibers);
-		uint8_t* const qptr = (uint8_t*)(fiber_sync + max_fibers);
+		uint8_t* const qptr = (uint8_t*)(counter_pool + max_fibers);
 		for (uint32_t i = 0; i < CMTS_QUEUE_PRIORITY_COUNT; ++i)
 		{
 			queues[i].initialize(qptr + i * qss);
 		}
 		for (uint32_t i = 0; i < max_fibers; ++i)
 		{
-			new (&fiber_pool[i]) fiber_state();
-			new (&fence_pool[i]) fence_state();
-			new (&counter_pool[i]) counter_state();
-			new (&fiber_sync[i]) fiber_synchronization_state();
+			fiber_pool[i].reset();
+			fence_pool[i].reset();
+			counter_pool[i].reset();
 		}
 		DWORD tmp;
 		for (uint32_t i = 0; i < used_cpu_count; ++i)
@@ -694,27 +702,23 @@ extern "C"
 		}
 	}
 
-	// Pauses all CMTS worker threads.
 	void CMTS_CALLING_CONVENTION cmts_halt()
 	{
 		for (uint32_t i = 0; i < used_cpu_count; ++i)
 			SuspendThread(threads[i]);
 	}
 
-	// Resumes execution of all CMTS worker threads.
 	void CMTS_CALLING_CONVENTION cmts_resume()
 	{
 		for (uint32_t i = 0; i < used_cpu_count; ++i)
 			ResumeThread(threads[i]);
 	}
 
-	// Tells CMTS to finish execution: all threads will finish once all running tasks either yield or exit.
 	void CMTS_CALLING_CONVENTION cmts_signal_finalize()
 	{
 		should_continue.safe.store(false, std::memory_order_release);
 	}
 
-	// Waits for all CMTS threads to exit and returns allocated memory to the OS.
 	void CMTS_CALLING_CONVENTION cmts_finalize()
 	{
 		WaitForMultipleObjects(used_cpu_count, threads, true, INFINITE);
@@ -722,7 +726,6 @@ extern "C"
 		ConvertFiberToThread();
 	}
 
-	// Terminates all CMTS threads and calls cmts_finalize.
 	void CMTS_CALLING_CONVENTION cmts_terminate()
 	{
 		cmts_signal_finalize();
@@ -732,13 +735,16 @@ extern "C"
 		ConvertFiberToThread();
 	}
 
-	// Returns whether CMTS is running.
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_task()
+	{
+		return root_fiber != nullptr;
+	}
+
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_running()
 	{
 		return should_continue.unsafe;
 	}
 
-	// Submits a task to CMTS.
 	void CMTS_CALLING_CONVENTION cmts_dispatch(
 		cmts_function_pointer_t fiber_function,
 		void* param,
@@ -753,15 +759,15 @@ extern "C"
 		push_fiber(id, s.priority);
 	}
 
-	// Halts execution of the current task.
 	void CMTS_CALLING_CONVENTION cmts_yield()
 	{
+		CMTS_ASSERT_IS_TASK;
 		SwitchToFiber(root_fiber);
 	}
 
-	// Finishes execution of the current task.
 	void CMTS_CALLING_CONVENTION cmts_exit()
 	{
+		CMTS_ASSERT_IS_TASK;
 		fiber_pool[current_fiber].done = true;
 		cmts_yield();
 	}
@@ -769,7 +775,7 @@ extern "C"
 	cmts_fence_t CMTS_CALLING_CONVENTION cmts_new_fence()
 	{
 		pool_control_block c, nc;
-		uint32_t index = (uint32_t)-1;
+		uint32_t index;
 		while (true)
 		{
 			CMTS_UNLIKELY_IF(fence_pool_size.load(std::memory_order_acquire) == max_tasks)
@@ -793,11 +799,9 @@ extern "C"
 					break;
 			}
 		}
-
 		fence_state& f = fence_pool[index];
 		f.flag_unsafe = false;
-		f.generation.fetch_add(1, std::memory_order_acquire);
-		const uint32_t generation = f.generation.load(std::memory_order_acquire);
+		const uint32_t generation = f.generation.fetch_add(1, std::memory_order_acquire) + 1;
 		return make_user_handle(index, generation);
 	}
 
@@ -821,7 +825,7 @@ extern "C"
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
 		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
-		new (&fence_pool[index]) fence_state();
+		fence_pool[index].reset();
 		pool_control_block c, nc;
 		while (true)
 		{
@@ -837,27 +841,31 @@ extern "C"
 
 	void CMTS_CALLING_CONVENTION cmts_await_fence(cmts_fence_t fence)
 	{
+		CMTS_ASSERT_IS_TASK;
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
 		if (fence_pool[index].generation != generation)
 			return;
-		auto& f = fiber_pool[current_fiber];
+		fiber_state& f = fiber_pool[current_fiber];
+		if (!fence_append_wait_list(fence_pool[index], current_fiber))
+			return;
 		f.sleeping = true;
-		append_fence_wait_list(current_fiber, index);
 		cmts_yield();
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_await_fence_and_delete(cmts_fence_t fence)
 	{
+		CMTS_ASSERT_IS_TASK;
 		const uint32_t index = (uint32_t)fence;
 		const uint32_t generation = (uint32_t)(fence >> 32);
 		if (fence_pool[index].generation != generation)
 			return;
-		auto& f = fiber_pool[current_fiber];
+		fiber_state& f = fiber_pool[current_fiber];
+		if (!fence_append_wait_list(fence_pool[index], current_fiber))
+			return;
 		f.sleeping = true;
-		append_fence_wait_list(current_fiber, index);
 		cmts_yield();
-		new (&fence_pool[index]) fence_state();
+		fence_pool[index].reset();
 		pool_control_block c, nc;
 		while (true)
 		{
@@ -873,8 +881,8 @@ extern "C"
 
 	cmts_counter_t CMTS_CALLING_CONVENTION cmts_new_counter(uint32_t start_value)
 	{
-		pool_control_block c;
-		uint32_t index = (uint32_t)-1;
+		pool_control_block c, nc;
+		uint32_t index;
 		while (true)
 		{
 			CMTS_UNLIKELY_IF(counter_pool_size.load(std::memory_order_acquire) == max_tasks)
@@ -882,7 +890,7 @@ extern "C"
 			c = counter_pool_ctrl.load(std::memory_order_acquire);
 			CMTS_LIKELY_IF(c.freelist != (uint32_t)-1)
 			{
-				auto nc = c;
+				nc = c;
 				index = nc.freelist;
 				nc.freelist = counter_pool[index].pool_next;
 				++nc.generation;
@@ -898,11 +906,9 @@ extern "C"
 					break;
 			}
 		}
-
 		counter_state& s = counter_pool[index];
 		s.counter_unsafe = start_value;
-		s.generation.fetch_add(1, std::memory_order_acquire);
-		const uint32_t generation = s.generation.load(std::memory_order_acquire);
+		const uint32_t generation = s.generation.fetch_add(1, std::memory_order_acquire) + 1;
 		return make_user_handle(index, generation);
 	}
 
@@ -918,7 +924,7 @@ extern "C"
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
-		counter_pool[index].counter.fetch_add(1, std::memory_order_relaxed);
+		counter_pool[index].counter.fetch_add(1, std::memory_order_acquire);
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_decrement_counter(cmts_counter_t counter)
@@ -926,39 +932,43 @@ extern "C"
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
-		counter_pool[index].counter.fetch_sub(1, std::memory_order_relaxed);
+		counter_pool[index].counter.fetch_sub(1, std::memory_order_release);
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_await_counter(cmts_counter_t counter)
 	{
+		CMTS_ASSERT_IS_TASK;
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
+		fiber_state& f = fiber_pool[current_fiber];
+		CMTS_UNLIKELY_IF(counter_pool[index].generation != generation)
 			return;
-		auto& f = fiber_pool[current_fiber];
-		if (counter_pool[index].generation != generation)
+		CMTS_UNLIKELY_IF(!counter_append_wait_list(counter_pool[index], current_fiber))
 			return;
 		f.sleeping = true;
-		append_counter_wait_list(current_fiber, index);
 		cmts_yield();
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_await_counter_and_delete(cmts_counter_t counter)
 	{
+		CMTS_ASSERT_IS_TASK;
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		if (counter_pool[index].generation != generation)
+		counter_state& s = counter_pool[index];
+		CMTS_UNLIKELY_IF(s.generation != generation)
 			return;
-		auto& f = fiber_pool[current_fiber];
+		fiber_state& f = fiber_pool[current_fiber];
+		CMTS_UNLIKELY_IF(!counter_append_wait_list(s, current_fiber))
+			return;
 		f.sleeping = true;
-		append_counter_wait_list(current_fiber, index);
 		cmts_yield();
-		new (&counter_pool[index]) counter_state();
+		s.reset();
 		pool_control_block c, nc;
 		while (true)
 		{
 			c = counter_pool_ctrl.load(std::memory_order_acquire);
 			nc = c;
-			counter_pool[index].pool_next = nc.freelist;
+			s.pool_next = nc.freelist;
 			nc.freelist = index;
 			++nc.generation;
 			CMTS_LIKELY_IF(counter_pool_ctrl.compare_exchange_strong(c, nc, std::memory_order_release, std::memory_order_relaxed))
@@ -971,7 +981,7 @@ extern "C"
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
-		new (&counter_pool[index]) counter_state();
+		counter_pool[index].reset();
 		pool_control_block c, nc;
 		while (true)
 		{
@@ -987,15 +997,16 @@ extern "C"
 
 	void CMTS_CALLING_CONVENTION cmts_dispatch_with_fence(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_fence_t fence)
 	{
-		const uint32_t index = (uint32_t)fence;
-		const uint32_t generation = (uint32_t)(fence >> 32);
-		CMTS_ASSERT(fence_pool[index].generation == generation, "Invalid fence handle, generation mismatch.");
+		const uint32_t fence_index = (uint32_t)fence;
+		const uint32_t fence_generation = (uint32_t)(fence >> 32);
+		CMTS_UNLIKELY_IF(fence_pool[fence_index].generation != fence_generation)
+			return;
 		const uint32_t id = new_fiber();
-		auto& f = fiber_pool[id];
+		fiber_state& f = fiber_pool[id];
 		f.function = task_function;
 		f.parameter = param;
 		f.has_fence = true;
-		fiber_sync[id].fence_id = index;
+		f.fence_id = fence_index;
 		CMTS_UNLIKELY_IF(f.handle == nullptr)
 			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
 		push_fiber(id, f.priority);
@@ -1003,15 +1014,16 @@ extern "C"
 
 	void CMTS_CALLING_CONVENTION cmts_dispatch_with_counter(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_counter_t counter)
 	{
-		const uint32_t index = (uint32_t)counter;
-		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		const uint32_t counter_index = (uint32_t)counter;
+		const uint32_t counter_generation = (uint32_t)(counter >> 32);
+		CMTS_UNLIKELY_IF(counter_pool[counter_index].generation != counter_generation)
+			return;
 		const uint32_t id = new_fiber();
-		auto& f = fiber_pool[id];
+		fiber_state& f = fiber_pool[id];
 		f.function = task_function;
 		f.parameter = param;
 		f.has_counter = true;
-		fiber_sync[id].counter_id = index;
+		f.counter_id = counter_index;
 		CMTS_UNLIKELY_IF(f.handle == nullptr)
 			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
 		push_fiber(id, f.priority);

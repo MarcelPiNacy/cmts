@@ -62,6 +62,7 @@ extern "C"
 	void			CMTS_CALLING_CONVENTION cmts_signal_finalize();
 	void			CMTS_CALLING_CONVENTION cmts_finalize();
 	void			CMTS_CALLING_CONVENTION cmts_terminate();
+	cmts_boolean_t	CMTS_CALLING_CONVENTION cmts_is_task();
 	cmts_boolean_t	CMTS_CALLING_CONVENTION cmts_is_running();
 	void			CMTS_CALLING_CONVENTION cmts_dispatch(cmts_function_pointer_t task_function, void* param, uint8_t priority_level);
 	void			CMTS_CALLING_CONVENTION cmts_yield();
