@@ -116,7 +116,7 @@ CMTS_INLINE_NEVER static void cmts_assertion_handler(const char* const message) 
 #define CMTS_ASSERT(expression, message) CMTS_ASSUME((expression) == true)
 #endif
 
-#define CMTS_ASSERT_IS_TASK CMTS_ASSERT(cmts_is_task(), "CMTS: function " __FUNCTION__ " must be called from a task.")
+#define CMTS_ASSERT_IS_TASK CMTS_ASSERT(cmts_is_task(), "CMTS: this function must be called from a task.")
 
 
 
