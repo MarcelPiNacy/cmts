@@ -50,6 +50,8 @@ typedef uint64_t cmts_fence_t;
 typedef uint64_t cmts_counter_t;
 
 #define CMTS_MAX_TASKS ((uint32_t)(1U << 24U))
+#define CMTS_NIL_COUNTER (~(uint32_t)0)
+#define CMTS_NIL_FENCE (~(uint32_t)0)
 
 #ifdef __cplusplus
 extern "C"
@@ -75,6 +77,7 @@ extern "C"
 	void			CMTS_CALLING_CONVENTION cmts_delete_fence(cmts_fence_t fence);
 	cmts_counter_t	CMTS_CALLING_CONVENTION cmts_new_counter(uint32_t start_value);
 	cmts_boolean_t	CMTS_CALLING_CONVENTION cmts_is_counter_valid(cmts_counter_t counter);
+	void			CMTS_CALLING_CONVENTION cmts_set_counter(cmts_counter_t counter, uint32_t value);
 	void			CMTS_CALLING_CONVENTION cmts_increment_counter(cmts_counter_t counter);
 	void			CMTS_CALLING_CONVENTION cmts_decrement_counter(cmts_counter_t counter);
 	void			CMTS_CALLING_CONVENTION cmts_await_counter(cmts_counter_t counter);
@@ -92,7 +95,7 @@ extern "C"
 #endif
 
 #ifdef CMTS_INCLUDE_IMPLEMENTATION
-#include "cmts_windows.inl"
+#include "cmts_windows.cpp"
 #endif
 
 #endif //CMTS_HEADER_INCLUDED

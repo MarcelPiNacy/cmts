@@ -36,9 +36,9 @@
 #define NOMINMAX
 #include <Windows.h>
 
-alignas(64) static thread_local uint32_t			current_fiber;
-static thread_local HANDLE							root_fiber;
-static thread_local uint32_t						processor_index;
+static thread_local uint32_t	current_fiber;
+static thread_local HANDLE		root_fiber;
+static thread_local uint32_t	processor_index;
 
 static const uint32_t cache_line_size_log2 = []() noexcept
 {
@@ -117,6 +117,10 @@ CMTS_INLINE_NEVER static void cmts_assertion_handler(const char* const message) 
 #endif
 
 #define CMTS_ASSERT_IS_TASK CMTS_ASSERT(cmts_is_task(), "CMTS: this function must be called from a task.")
+
+
+
+#define CMTS_ROUND_TO_ALIGNMENT(K, A) ((K + ((A) - 1)) & ~(A - 1))
 
 
 
@@ -249,7 +253,9 @@ struct alignas(64) fiber_state
 	HANDLE		handle;
 	F			function;
 	void*		parameter;
+
 	uint32_t	pool_next;
+
 	uint32_t	priority : 3,
 				has_fence : 1,
 				has_counter : 1,
@@ -265,10 +271,12 @@ struct alignas(64) fiber_state
 	CMTS_INLINE_ALWAYS
 	void reset() noexcept
 	{
+		memset(this, 0, sizeof(fiber_state));
 		has_fence = false;
 		has_counter = false;
 		sleeping = false;
 		done = false;
+
 		pool_next = (uint32_t)-1;
 		fence_id = (uint32_t)-1;
 		counter_id = (uint32_t)-1;
@@ -679,7 +687,7 @@ extern "C"
 		const size_t allocation_size = (used_cpu_count * sizeof(HANDLE)) + (qss * CMTS_QUEUE_PRIORITY_COUNT) + (max_fibers * (sizeof(fiber_state) + sizeof(fence_state) + sizeof(counter_state)));
 		uint8_t* const ptr = (uint8_t*)VirtualAlloc(nullptr, allocation_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 		threads = (HANDLE*)ptr;
-		fiber_pool = (fiber_state*)(threads + used_cpu_count);
+		fiber_pool = (fiber_state*)CMTS_ROUND_TO_ALIGNMENT((size_t)(threads + used_cpu_count), 64);
 		fence_pool = (fence_state*)(fiber_pool + max_fibers);
 		counter_pool = (counter_state*)(fence_pool + max_fibers);
 		uint8_t* const qptr = (uint8_t*)(counter_pool + max_fibers);
@@ -917,6 +925,14 @@ extern "C"
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
 		return counter_pool[index].generation == generation;
+	}
+
+	void CMTS_CALLING_CONVENTION cmts_set_counter(cmts_counter_t counter, uint32_t value)
+	{
+		const uint32_t index = (uint32_t)counter;
+		const uint32_t generation = (uint32_t)(counter >> 32);
+		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		counter_pool[index].counter.store(value, std::memory_order_release);
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_increment_counter(cmts_counter_t counter)
