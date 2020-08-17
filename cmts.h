@@ -35,6 +35,10 @@
 #define CMTS_QUEUE_PRIORITY_COUNT 4
 #endif
 
+#if CMTS_QUEUE_PRIORITY_COUNT > 256
+#error "Error, CMTS_QUEUE_PRIORITY_COUNT must not exceed 256"
+#endif
+
 #ifndef CMTS_CALLING_CONVENTION
 #define CMTS_CALLING_CONVENTION
 #endif
@@ -49,6 +53,18 @@ typedef void(*cmts_function_pointer_t)(void*);
 typedef uint64_t cmts_fence_t;
 typedef uint64_t cmts_counter_t;
 
+#ifdef CMTS_MAX_TASKS
+#error "Error, attempted to redefine CMTS_MAX_TASKS."
+#endif
+
+#ifdef CMTS_NIL_COUNTER
+#error "Error, attempted to redefine CMTS_NIL_COUNTER."
+#endif
+
+#ifdef CMTS_NIL_FENCE
+#error "Error, attempted to redefine CMTS_NIL_FENCE."
+#endif
+
 #define CMTS_MAX_TASKS ((uint32_t)(1U << 24U))
 #define CMTS_NIL_COUNTER (~(uint32_t)0)
 #define CMTS_NIL_FENCE (~(uint32_t)0)
@@ -59,7 +75,7 @@ extern "C"
 #endif
 
 	void			CMTS_CALLING_CONVENTION cmts_initialize(uint32_t max_tasks, uint32_t max_cpus);
-	void			CMTS_CALLING_CONVENTION cmts_halt();
+	void			CMTS_CALLING_CONVENTION cmts_break();
 	void			CMTS_CALLING_CONVENTION cmts_resume();
 	void			CMTS_CALLING_CONVENTION cmts_signal_finalize();
 	void			CMTS_CALLING_CONVENTION cmts_finalize();
@@ -94,7 +110,7 @@ extern "C"
 }
 #endif
 
-#ifdef CMTS_INCLUDE_IMPLEMENTATION
+#ifdef CMTS_IMPLEMENTATION
 #include "cmts_windows.cpp"
 #endif
 

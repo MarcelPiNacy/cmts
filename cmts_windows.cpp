@@ -40,7 +40,7 @@ static thread_local uint32_t	current_fiber;
 static thread_local HANDLE		root_fiber;
 static thread_local uint32_t	processor_index;
 
-static const uint32_t cache_line_size_log2 = []() noexcept
+static const uint32_t cache_line_size_log2 = []() CMTS_CALLING_CONVENTION noexcept
 {
 	DWORD k = 0;
 	GetLogicalProcessorInformation(nullptr, &k);
@@ -104,29 +104,32 @@ static_assert(false, "CMTS: Unsupported compiler.");
 
 
 #ifdef CMTS_DEBUG
-CMTS_INLINE_NEVER static void cmts_assertion_handler(const char* const message) noexcept
+CMTS_INLINE_NEVER static void CMTS_CALLING_CONVENTION cmts_assertion_handler(const char* const message) noexcept
 {
-	cmts_halt();
+	cmts_break();
 	OutputDebugStringA(message);
 	DebugBreak();
 	abort();
 }
 #define CMTS_ASSERT(expression, message) CMTS_UNLIKELY_IF (!(expression)) cmts_assertion_handler("CMTS:\t" message "\n")
+#define CMTS_ASSERT_SIDE_EFFECTS(expression, message) CMTS_UNLIKELY_IF (!(expression)) cmts_assertion_handler("CMTS:\t" message "\n")
 #else
-#define CMTS_ASSERT(expression, message) CMTS_ASSUME((expression) == true)
+#define CMTS_ASSERT(expression, message) CMTS_ASSUME((expression))
+#define CMTS_ASSERT_SIDE_EFFECTS(expression, message)
 #endif
 
-#define CMTS_ASSERT_IS_TASK CMTS_ASSERT(cmts_is_task(), "CMTS: this function must be called from a task.")
+#define CMTS_ASSERT_IS_TASK CMTS_ASSERT_SIDE_EFFECTS(cmts_is_task(), "CMTS: this function must be called from a task.")
 
 
 
 #define CMTS_ROUND_TO_ALIGNMENT(K, A) ((K + ((A) - 1)) & ~(A - 1))
 
-
+template <typename T>
+using atomic_type = std::atomic<T>;
 
 union flag_type
 {
-	std::atomic_bool safe;
+	atomic_type<bool> safe;
 	bool unsafe;
 };
 
@@ -137,23 +140,23 @@ struct lockfree_queue
 		uint64_t head : 24, tail : 24, generation : 8;
 
 		CMTS_INLINE_ALWAYS
-		bool operator==(const control_block& other) const noexcept
+		bool CMTS_CALLING_CONVENTION operator==(const control_block& other) const noexcept
 		{
 			return *(const uint64_t*)this == *(const uint64_t*)&other;
 		}
 
 		CMTS_INLINE_ALWAYS
-		bool operator!=(const control_block& other) const noexcept
+		bool CMTS_CALLING_CONVENTION operator!=(const control_block& other) const noexcept
 		{
 			return !this->operator==(other);
 		}
 	};
 
-	alignas(64) std::atomic<control_block> ctrl;
-	alignas(64) std::atomic<uint32_t>* values;
+	alignas(64) atomic_type<control_block> ctrl;
+	alignas(64) atomic_type<uint32_t>* values;
 
 	CMTS_INLINE_ALWAYS
-	static uint32_t adjust_index(const uint32_t index) noexcept
+	static uint32_t CMTS_CALLING_CONVENTION adjust_index(const uint32_t index) noexcept
 	{
 		const uint32_t sl = cache_line_size_log2;
 		const uint32_t sr = 24 - sl;
@@ -163,13 +166,13 @@ struct lockfree_queue
 	}
 
 	CMTS_INLINE_ALWAYS
-	void initialize(void* memory) noexcept
+	void CMTS_CALLING_CONVENTION initialize(void* memory) noexcept
 	{
-		values = (std::atomic<uint32_t>*)memory;
-		memset(values, 255, max_tasks * sizeof(std::atomic<uint32_t>));
+		values = (atomic_type<uint32_t>*)memory;
+		memset(values, 255, max_tasks * sizeof(atomic_type<uint32_t>));
 	}
 
-	bool store(const uint32_t value) noexcept
+	bool CMTS_CALLING_CONVENTION store(const uint32_t value) noexcept
 	{
 		control_block c, nc;
 		while (true)
@@ -197,7 +200,7 @@ struct lockfree_queue
 		}
 	}
 
-	bool fetch(uint32_t& out) noexcept
+	bool CMTS_CALLING_CONVENTION fetch(uint32_t& out) noexcept
 	{
 		control_block c, nc;
 		while (true)
@@ -234,13 +237,13 @@ struct alignas(8) wait_list_control_block
 	uint32_t generation;
 
 	CMTS_INLINE_ALWAYS
-	bool operator==(const wait_list_control_block& other) const noexcept
+	bool CMTS_CALLING_CONVENTION operator==(const wait_list_control_block& other) const noexcept
 	{
 		return *(const uint64_t*)this == *(const uint64_t*)&other;
 	}
 
 	CMTS_INLINE_ALWAYS
-	bool operator!=(const wait_list_control_block& other) const noexcept
+	bool CMTS_CALLING_CONVENTION operator!=(const wait_list_control_block& other) const noexcept
 	{
 		return !this->operator==(other);
 	}
@@ -269,7 +272,7 @@ struct alignas(64) fiber_state
 	uint32_t	counter_next;
 
 	CMTS_INLINE_ALWAYS
-	void reset() noexcept
+	void CMTS_CALLING_CONVENTION reset() noexcept
 	{
 		memset(this, 0, sizeof(fiber_state));
 		has_fence = false;
@@ -290,19 +293,19 @@ struct alignas(64) fence_state
 {
 	union
 	{
-		std::atomic_bool flag;
+		atomic_type<bool> flag;
 		bool flag_unsafe;
 	};
-	std::atomic_uint32_t generation;
+	atomic_type<uint32_t> generation;
 	uint32_t pool_next;
 	union
 	{
-		std::atomic<wait_list_control_block> wait_list;
+		atomic_type<wait_list_control_block> wait_list;
 		wait_list_control_block wait_list_unsafe;
 	};
 
 	CMTS_INLINE_ALWAYS
-	void reset() noexcept
+	void CMTS_CALLING_CONVENTION reset() noexcept
 	{
 		pool_next = (uint32_t)-1;
 		wait_list_unsafe.head = (uint32_t)-1;
@@ -314,19 +317,19 @@ struct alignas(64) counter_state
 {
 	union
 	{
-		std::atomic_uint32_t counter;
+		atomic_type<uint32_t> counter;
 		uint32_t counter_unsafe;
 	};
-	std::atomic_uint32_t generation;
+	atomic_type<uint32_t> generation;
 	uint32_t pool_next;
 	union
 	{
-		std::atomic<wait_list_control_block> wait_list;
+		atomic_type<wait_list_control_block> wait_list;
 		wait_list_control_block wait_list_unsafe;
 	};
 
 	CMTS_INLINE_ALWAYS
-	void reset() noexcept
+	void CMTS_CALLING_CONVENTION reset() noexcept
 	{
 		pool_next = (uint32_t)-1;
 		wait_list_unsafe.head = (uint32_t)-1;
@@ -348,12 +351,12 @@ static fiber_state* fiber_pool;
 static fence_state* fence_pool;
 static counter_state* counter_pool;
 
-alignas(64) static std::atomic<pool_control_block>	fiber_pool_ctrl;
-alignas(64) static std::atomic<uint32_t>			fiber_pool_size;
-alignas(64) static std::atomic<pool_control_block>	fence_pool_ctrl;
-alignas(64) static std::atomic<uint32_t>			fence_pool_size;
-alignas(64) static std::atomic<pool_control_block>	counter_pool_ctrl;
-alignas(64) static std::atomic<uint32_t>			counter_pool_size;
+alignas(64) static atomic_type<pool_control_block>	fiber_pool_ctrl;
+alignas(64) static atomic_type<uint32_t>			fiber_pool_size;
+alignas(64) static atomic_type<pool_control_block>	fence_pool_ctrl;
+alignas(64) static atomic_type<uint32_t>			fence_pool_size;
+alignas(64) static atomic_type<pool_control_block>	counter_pool_ctrl;
+alignas(64) static atomic_type<uint32_t>			counter_pool_size;
 alignas(64) static lockfree_queue					queues[CMTS_QUEUE_PRIORITY_COUNT];
 alignas(64) static flag_type						should_continue = {};
 
@@ -362,13 +365,13 @@ alignas(64) static flag_type						should_continue = {};
 
 
 CMTS_INLINE_ALWAYS
-static uint64_t make_user_handle(const uint32_t value, const uint32_t generation) noexcept
+static uint64_t CMTS_CALLING_CONVENTION make_user_handle(const uint32_t value, const uint32_t generation) noexcept
 {
 	return (uint64_t)((uint64_t)value | ((uint64_t)generation << 32));
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t timestamp_frequency() noexcept
+static CMTS_CALLING_CONVENTION uint32_t timestamp_frequency() noexcept
 {
 	LARGE_INTEGER i;
 	QueryPerformanceFrequency(&i);
@@ -376,7 +379,7 @@ static uint32_t timestamp_frequency() noexcept
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t timestamp() noexcept
+static CMTS_CALLING_CONVENTION uint32_t timestamp() noexcept
 {
 	LARGE_INTEGER i;
 	QueryPerformanceCounter(&i);
@@ -384,20 +387,20 @@ static uint32_t timestamp() noexcept
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t timestamp_ns() noexcept
+static CMTS_CALLING_CONVENTION uint32_t timestamp_ns() noexcept
 {
 	return (timestamp() * 1000'000'000) / timestamp_frequency();
 }
 
 CMTS_INLINE_NEVER
-static void conditionally_exit_thread() noexcept
+static CMTS_CALLING_CONVENTION void conditionally_exit_thread() noexcept
 {
 	CMTS_UNLIKELY_IF(!should_continue.safe.load(std::memory_order_acquire))
 		ExitThread(0);
 }
 
 CMTS_INLINE_ALWAYS
-static bool counter_append_wait_list(counter_state& state, const uint32_t fiber) noexcept
+static bool CMTS_CALLING_CONVENTION counter_append_wait_list(counter_state& state, const uint32_t fiber) noexcept
 {
 	wait_list_control_block c, nc;
 	while (true)
@@ -416,7 +419,7 @@ static bool counter_append_wait_list(counter_state& state, const uint32_t fiber)
 }
 
 CMTS_INLINE_ALWAYS
-static bool fence_append_wait_list(fence_state& state, const uint32_t fiber) noexcept
+static bool CMTS_CALLING_CONVENTION fence_append_wait_list(fence_state& state, const uint32_t fiber) noexcept
 {
 	wait_list_control_block c, nc;
 	while (true)
@@ -435,7 +438,7 @@ static bool fence_append_wait_list(fence_state& state, const uint32_t fiber) noe
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t fetch_wait_list(std::atomic<wait_list_control_block>& ctrl) noexcept
+static uint32_t CMTS_CALLING_CONVENTION fetch_wait_list(atomic_type<wait_list_control_block>& ctrl) noexcept
 {
 	uint32_t r;
 	wait_list_control_block c, nc;
@@ -455,7 +458,7 @@ static uint32_t fetch_wait_list(std::atomic<wait_list_control_block>& ctrl) noex
 }
 
 CMTS_INLINE_NEVER
-static void wait_for_available_resource(const std::atomic_uint32_t& pool_size) noexcept
+static void CMTS_CALLING_CONVENTION wait_for_available_resource(const atomic_type<uint32_t>& pool_size) noexcept
 {
 	while (pool_size.load(std::memory_order_acquire) == max_tasks)
 	{
@@ -467,7 +470,7 @@ static void wait_for_available_resource(const std::atomic_uint32_t& pool_size) n
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t new_fiber() noexcept
+static uint32_t CMTS_CALLING_CONVENTION new_fiber() noexcept
 {
 	pool_control_block c, nc;
 	uint32_t r = (uint32_t)-1;
@@ -501,7 +504,7 @@ static uint32_t new_fiber() noexcept
 }
 
 CMTS_INLINE_ALWAYS
-static void delete_fiber(const uint32_t fiber) noexcept
+static void CMTS_CALLING_CONVENTION delete_fiber(const uint32_t fiber) noexcept
 {
 	fiber_state& f = fiber_pool[fiber];
 	HANDLE h = f.handle;
@@ -522,7 +525,7 @@ static void delete_fiber(const uint32_t fiber) noexcept
 }
 
 CMTS_INLINE_ALWAYS
-static void push_fiber(const uint32_t fiber, const uint8_t priority) noexcept
+static void CMTS_CALLING_CONVENTION push_fiber(const uint32_t fiber, const uint8_t priority) noexcept
 {
 	while (true)
 	{
@@ -535,7 +538,7 @@ static void push_fiber(const uint32_t fiber, const uint8_t priority) noexcept
 }
 
 CMTS_INLINE_NEVER
-static void fence_wake_fibers(const uint32_t fence_index) noexcept
+static void CMTS_CALLING_CONVENTION fence_wake_fibers(const uint32_t fence_index) noexcept
 {
 	uint32_t i;
 	while (true)
@@ -549,14 +552,14 @@ static void fence_wake_fibers(const uint32_t fence_index) noexcept
 }
 
 CMTS_INLINE_ALWAYS
-static void fence_conditionally_wake_fibers(const uint32_t fence_index) noexcept
+static void CMTS_CALLING_CONVENTION fence_conditionally_wake_fibers(const uint32_t fence_index) noexcept
 {
 	CMTS_LIKELY_IF(!fence_pool[fence_index].flag.exchange(true, std::memory_order_acquire))
 		fence_wake_fibers(fence_index);
 }
 
 CMTS_INLINE_NEVER
-static void counter_wake_fibers(const uint32_t counter_index) noexcept
+static void CMTS_CALLING_CONVENTION counter_wake_fibers(const uint32_t counter_index) noexcept
 {
 	uint32_t i;
 	while (true)
@@ -570,7 +573,7 @@ static void counter_wake_fibers(const uint32_t counter_index) noexcept
 }
 
 CMTS_INLINE_ALWAYS
-static void counter_conditionally_wake_fibers(const uint32_t counter_index) noexcept
+static void CMTS_CALLING_CONVENTION counter_conditionally_wake_fibers(const uint32_t counter_index) noexcept
 {
 	const uint32_t value = counter_pool[counter_index].counter.fetch_sub(1, std::memory_order_acquire) - 1;
 	CMTS_LIKELY_IF(value == 0)
@@ -578,12 +581,13 @@ static void counter_conditionally_wake_fibers(const uint32_t counter_index) noex
 }
 
 CMTS_INLINE_ALWAYS
-static uint32_t fetch_fiber() noexcept
+static uint32_t CMTS_CALLING_CONVENTION fetch_fiber() noexcept
 {
 	uint32_t threshold = 64;
 	const uint32_t start = timestamp_ns();
 	uint32_t last = start;
-	uint32_t long_delay = 1;
+	uint32_t long_delay = 0;
+	uint32_t max_long_delay = 32;
 
 	while (true)
 	{
@@ -611,8 +615,9 @@ static uint32_t fetch_fiber() noexcept
 			}
 			else
 			{
-				Sleep(long_delay);
-				++long_delay;
+				CMTS_LIKELY_IF(long_delay < max_long_delay)
+					++long_delay;
+				SleepEx(long_delay, true);
 			}
 		}
 	}
@@ -683,7 +688,7 @@ extern "C"
 		should_continue.safe.store(true, std::memory_order_release);
 		const uint32_t c = cmts_available_cpu_count();
 		used_cpu_count = max_cpus < c ? max_cpus : c;
-		const uint32_t qss = max_tasks * sizeof(std::atomic<uint32_t>);
+		const uint32_t qss = max_tasks * sizeof(atomic_type<uint32_t>);
 		const size_t allocation_size = (used_cpu_count * sizeof(HANDLE)) + (qss * CMTS_QUEUE_PRIORITY_COUNT) + (max_fibers * (sizeof(fiber_state) + sizeof(fence_state) + sizeof(counter_state)));
 		uint8_t* const ptr = (uint8_t*)VirtualAlloc(nullptr, allocation_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 		threads = (HANDLE*)ptr;
@@ -710,7 +715,7 @@ extern "C"
 		}
 	}
 
-	void CMTS_CALLING_CONVENTION cmts_halt()
+	void CMTS_CALLING_CONVENTION cmts_break()
 	{
 		for (uint32_t i = 0; i < used_cpu_count; ++i)
 			SuspendThread(threads[i]);
@@ -931,7 +936,7 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT_SIDE_EFFECTS(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.store(value, std::memory_order_release);
 	}
 
@@ -939,7 +944,7 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT_SIDE_EFFECTS(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.fetch_add(1, std::memory_order_acquire);
 	}
 
@@ -947,7 +952,7 @@ extern "C"
 	{
 		const uint32_t index = (uint32_t)counter;
 		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT_SIDE_EFFECTS(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.fetch_sub(1, std::memory_order_release);
 	}
 
