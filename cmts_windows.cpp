@@ -28,7 +28,6 @@
 
 
 
-#include "cmts.h"
 #include <atomic>
 #include <intrin.h>
 #define WIN32_LEAN_AND_MEAN
@@ -768,7 +767,7 @@ extern "C"
 		s.function = fiber_function;
 		s.parameter = param;
 		CMTS_UNLIKELY_IF(s.handle == nullptr)
-			s.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &fiber_pool[id]);
+			s.handle = CreateFiberEx(CMTS_TASK_STACK_SIZE, CMTS_TASK_STACK_SIZE, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &fiber_pool[id]);
 		push_fiber(id, s.priority);
 	}
 
@@ -1029,7 +1028,7 @@ extern "C"
 		f.has_fence = true;
 		f.fence_id = fence_index;
 		CMTS_UNLIKELY_IF(f.handle == nullptr)
-			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
+			f.handle = CreateFiberEx(CMTS_TASK_STACK_SIZE, CMTS_TASK_STACK_SIZE, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
 		push_fiber(id, f.priority);
 	}
 
@@ -1046,7 +1045,7 @@ extern "C"
 		f.has_counter = true;
 		f.counter_id = counter_index;
 		CMTS_UNLIKELY_IF(f.handle == nullptr)
-			f.handle = CreateFiberEx(1 << 16, 1 << 16, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
+			f.handle = CreateFiberEx(CMTS_TASK_STACK_SIZE, CMTS_TASK_STACK_SIZE, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)fiber_main, &f);
 		push_fiber(id, f.priority);
 	}
 

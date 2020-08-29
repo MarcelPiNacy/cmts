@@ -39,6 +39,10 @@
 #error "Error, CMTS_QUEUE_PRIORITY_COUNT must not exceed 256"
 #endif
 
+#ifndef CMTS_TASK_STACK_SIZE
+#define CMTS_TASK_STACK_SIZE 65536
+#endif
+
 #ifndef CMTS_CALLING_CONVENTION
 #define CMTS_CALLING_CONVENTION
 #endif
