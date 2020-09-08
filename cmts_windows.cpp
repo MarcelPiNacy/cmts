@@ -934,24 +934,21 @@ extern "C"
 	void CMTS_CALLING_CONVENTION cmts_set_counter(cmts_counter_t counter, uint32_t value)
 	{
 		const uint32_t index = (uint32_t)counter;
-		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT_SIDE_EFFECTS(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT_SIDE_EFFECTS(counter_pool[index].generation == (counter >> 32), "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.store(value, std::memory_order_release);
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_increment_counter(cmts_counter_t counter)
 	{
 		const uint32_t index = (uint32_t)counter;
-		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT_SIDE_EFFECTS(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT_SIDE_EFFECTS(counter_pool[index].generation == (counter >> 32), "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.fetch_add(1, std::memory_order_acquire);
 	}
 
 	void CMTS_CALLING_CONVENTION cmts_decrement_counter(cmts_counter_t counter)
 	{
 		const uint32_t index = (uint32_t)counter;
-		const uint32_t generation = (uint32_t)(counter >> 32);
-		CMTS_ASSERT_SIDE_EFFECTS(counter_pool[index].generation == generation, "Invalid counter handle, generation mismatch.");
+		CMTS_ASSERT_SIDE_EFFECTS(counter_pool[index].generation == (counter >> 32), "Invalid counter handle, generation mismatch.");
 		counter_pool[index].counter.fetch_sub(1, std::memory_order_release);
 	}
 
