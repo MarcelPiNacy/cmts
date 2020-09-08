@@ -50,8 +50,7 @@ int main()
     cmts_dispatch();
     cmts_finalize();
 }
-
 ```
 #### Issues
- - Currently cmts can't be configured at runtime. In the near future cmts_initialize will be subtituted by cmts_init, which will expect an optional pointer to a configurations struct.
- - There is currently an unidentified bug that causes random application crashes.
+ - There is currently a bug that may lead to random crashes.
+ - cmts can't be significantly configured at runtime. In the near future cmts_initialize will be subtituted by cmts_init, which will expect an optional pointer to a configuration struct.
