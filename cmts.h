@@ -31,8 +31,24 @@
 
 #include <stdint.h>
 
+#ifdef CMTS_MAX_TASKS
+#undef CMTS_MAX_TASKS
+#endif
+
+#ifdef CMTS_NIL_COUNTER
+#undef CMTS_NIL_COUNTER
+#endif
+
+#ifdef CMTS_NIL_FENCE
+#undef CMTS_NIL_FENCE
+#endif
+
+#define CMTS_MAX_TASKS ((uint32_t)(1U << 24U))
+#define CMTS_NIL_COUNTER (~(uint32_t)0)
+#define CMTS_NIL_FENCE (~(uint32_t)0)
+
 #ifndef CMTS_QUEUE_PRIORITY_COUNT
-#define CMTS_QUEUE_PRIORITY_COUNT 4
+#define CMTS_QUEUE_PRIORITY_COUNT 3
 #endif
 
 #if CMTS_QUEUE_PRIORITY_COUNT > 256
@@ -57,22 +73,13 @@ typedef void(*cmts_function_pointer_t)(void*);
 typedef uint64_t cmts_fence_t;
 typedef uint64_t cmts_counter_t;
 
-#ifdef CMTS_MAX_TASKS
-#error "Error, attempted to redefine CMTS_MAX_TASKS."
-#endif
-
-#ifdef CMTS_NIL_COUNTER
-#error "Error, attempted to redefine CMTS_NIL_COUNTER."
-#endif
-
-#ifdef CMTS_NIL_FENCE
-#error "Error, attempted to redefine CMTS_NIL_FENCE."
-#endif
-
-#define CMTS_MAX_TASKS ((uint32_t)(1U << 24U))
-
-#define CMTS_NIL_COUNTER (~(uint32_t)0)
-#define CMTS_NIL_FENCE (~(uint32_t)0)
+typedef struct _cmts_options_t
+{
+	uint32_t use_affinity : 1;
+	uint32_t max_tasks : 24;
+	uint32_t max_threads;
+	uint32_t first_core; //Ignored if use_affinity is false.
+} cmts_options_t;
 
 #ifdef __cplusplus
 extern "C"
@@ -82,8 +89,8 @@ extern "C"
 	/*
 		Initializes the library.
 		Parameters:
-			- max_tasks specifies the maximum number of tasks.
-			- max_cpus specifies the number of CPU cores to use.
+			- max_tasks: Specifies the maximum number of tasks, which must be a power of 2.
+			- max_cpus: Specifies the number of CPU cores to use.
 		Notes:
 			- The library currently locks worker threads to CPU cores using affinity, meaning that cores 0 - max_cpus will always be used.
 			- Currently, the memory buffer used by most data structures in cmts can only be allocated using the operating system's allocator (VirtualAlloc/mmap).
@@ -101,7 +108,7 @@ extern "C"
 	void CMTS_CALLING_CONVENTION cmts_resume();
 
 	/*
-		Signals to all worker threads to exit once they reach an idle state.
+		Signals to all worker threads to exit once the tasks they are running yield or complete.
 		Notes:
 			- Calling this function from inside a task will not cause the current worker thread to immediately exit.
 	*/
@@ -264,7 +271,11 @@ extern "C"
 #endif
 
 #ifdef CMTS_IMPLEMENTATION
+#ifdef _WIN32
 #include "cmts_windows.cpp"
+#else
+#error "cmts currently doesn't support this target platform."
+#endif
 #endif
 
 #endif //CMTS_HEADER_INCLUDED

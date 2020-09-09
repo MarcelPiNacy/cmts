@@ -26,8 +26,6 @@
 	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-
-
 #include <atomic>
 #include <intrin.h>
 #define WIN32_LEAN_AND_MEAN
@@ -56,11 +54,10 @@ static const uint32_t cache_line_size_log2 = []() CMTS_CALLING_CONVENTION noexce
 	abort();
 }();
 
-static uint32_t										max_tasks;
-static uint32_t										used_cpu_count;
-static uint32_t										queue_shard_mod_mask;
-static HANDLE*										threads;
-
+static uint32_t					max_tasks;
+static uint32_t					used_cpu_count;
+static uint32_t					queue_shard_mod_mask;
+static HANDLE*					threads;
 
 #if (defined(DEBUG) || defined(_DEBUG) || !defined(NDEBUG)) && !defined(CMTS_DEBUG)
 #define CMTS_DEBUG
@@ -1071,11 +1068,3 @@ extern "C"
 #ifdef __cplusplus
 }
 #endif
-
-#undef CMTS_DEBUG
-#undef CMTS_LIKELY_IF
-#undef CMTS_UNLIKELY_IF
-#undef CMTS_ASSERT
-#undef CMTS_ASSUME
-#undef CMTS_INLINE_ALWAYS
-#undef CMTS_INLINE_NEVER

@@ -4,6 +4,7 @@ cmts is a C++ header-only library for cooperative multitasking.
 #### Features
 - The library relies on a lock-free ring buffer for queue operations that minimizes false sharing through a bitwise rotate on the read and write indices.
 - All data structures are allocated at once at startup, with the exception of the fiber stacks.
+- The library doesn't use exceptions and its API is compatible with C.
 #### Usage
 Like other C/C++ header-only libraries, you can `#include cmts.h` anywhere in your project, as long as you add the following *once*:
 ```C++
@@ -47,7 +48,7 @@ int main()
 {
     auto ncpus = cmts_available_cpu_count();
     cmts_initialize(ncpus * 256, ncpus);
-    cmts_dispatch();
+    cmts_dispatch(entry, nullptr, 0);
     cmts_finalize();
 }
 ```
