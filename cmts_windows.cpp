@@ -129,101 +129,47 @@ union flag_type
 	bool unsafe;
 };
 
-struct lockfree_queue
+struct queue_type
 {
-	struct alignas(64) control_block
-	{
-		uint64_t head : 24, tail : 24, generation : 8;
-
-		CMTS_INLINE_ALWAYS
-		bool CMTS_CALLING_CONVENTION operator==(const control_block& other) const noexcept
-		{
-			return *(const uint64_t*)this == *(const uint64_t*)&other;
-		}
-
-		CMTS_INLINE_ALWAYS
-		bool CMTS_CALLING_CONVENTION operator!=(const control_block& other) const noexcept
-		{
-			return !this->operator==(other);
-		}
-	};
-
-	alignas(64) atomic_type<control_block> ctrl;
-	alignas(64) atomic_type<uint32_t>* values;
-
-	CMTS_INLINE_ALWAYS
-	static uint32_t CMTS_CALLING_CONVENTION adjust_index(const uint32_t index) noexcept
-	{
-		const uint32_t sl = cache_line_size_log2;
-		const uint32_t sr = 24 - sl;
-		const uint32_t high = index << sl;
-		const uint32_t low = index >> sr;
-		return (high | low) & queue_shard_mod_mask;
-	}
+	alignas(64) std::atomic_bool spinlock;
+	uint32_t head;
+	uint32_t tail;
+	uint32_t* values;
 
 	CMTS_INLINE_ALWAYS
 	void CMTS_CALLING_CONVENTION initialize(void* memory) noexcept
 	{
-		values = (atomic_type<uint32_t>*)memory;
-		memset(values, 255, max_tasks * sizeof(atomic_type<uint32_t>));
+		values = (uint32_t*)memory;
+		memset(values, 0xff, max_tasks * sizeof(uint32_t));
 	}
 
 	bool CMTS_CALLING_CONVENTION store(const uint32_t value) noexcept
 	{
-		control_block c, nc;
-		while (true)
+		while (spinlock.exchange(true, std::memory_order_acquire))
+			_mm_pause();
+		const uint32_t nh = head + 1;
+		const bool r = nh != tail;
+		if (r)
 		{
-			nc = c = ctrl.load(std::memory_order_acquire);
-			++nc.head;
-			CMTS_UNLIKELY_IF(nc.head == c.tail)
-				return false;
-			++nc.generation;
-			CMTS_LIKELY_IF(ctrl.load(std::memory_order_relaxed) == c)
-			{
-				CMTS_LIKELY_IF(ctrl.compare_exchange_strong(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
-				{
-					const uint32_t i = adjust_index(c.head);
-					uint32_t empty = (uint32_t)-1;
-					while (true)
-					{
-						CMTS_LIKELY_IF(values[i].load(std::memory_order_acquire) == empty)
-							CMTS_LIKELY_IF(values[i].compare_exchange_strong(empty, value, std::memory_order_release, std::memory_order_relaxed))
-								return true;
-						_mm_pause();
-					}
-				}
-			}
+			values[head & (max_tasks - 1)] = value;
+			head = nh;
 		}
+		spinlock.store(false, std::memory_order_release);
+		return r;
 	}
 
 	bool CMTS_CALLING_CONVENTION fetch(uint32_t& out) noexcept
 	{
-		control_block c, nc;
-		while (true)
+		while (spinlock.exchange(true, std::memory_order_acquire))
+			_mm_pause();
+		const bool r = head != tail;
+		if (r)
 		{
-			c = ctrl.load(std::memory_order_acquire);
-			CMTS_UNLIKELY_IF(c.head == c.tail)
-				return {};
-			nc = c;
-			++nc.tail;
-			++nc.generation;
-			CMTS_LIKELY_IF(ctrl.load(std::memory_order_relaxed) == c)
-			{
-				CMTS_LIKELY_IF(ctrl.compare_exchange_strong(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
-				{
-					const uint32_t i = adjust_index(c.tail);
-					uint32_t empty = (uint32_t)-1;
-					while (true)
-					{
-						out = values[i].load(std::memory_order_acquire);
-						CMTS_LIKELY_IF(out != empty)
-							CMTS_LIKELY_IF(values[i].compare_exchange_strong(out, empty, std::memory_order_release, std::memory_order_relaxed))
-								return true;
-						_mm_pause();
-					}
-				}
-			}
+			out = values[tail & (max_tasks - 1)];
+			++tail;
 		}
+		spinlock.store(false, std::memory_order_release);
+		return r;
 	}
 };
 
@@ -353,7 +299,7 @@ alignas(64) static atomic_type<pool_control_block>	fence_pool_ctrl;
 alignas(64) static atomic_type<uint32_t>			fence_pool_size;
 alignas(64) static atomic_type<pool_control_block>	counter_pool_ctrl;
 alignas(64) static atomic_type<uint32_t>			counter_pool_size;
-alignas(64) static lockfree_queue					queues[CMTS_QUEUE_PRIORITY_COUNT];
+alignas(64) static queue_type						queues[CMTS_QUEUE_PRIORITY_COUNT];
 alignas(64) static flag_type						should_continue = {};
 
 //!@region thread-shared state group 2
@@ -589,7 +535,7 @@ static uint32_t CMTS_CALLING_CONVENTION fetch_fiber() noexcept
 	{
 		CMTS_UNLIKELY_IF(!should_continue.unsafe)
 			conditionally_exit_thread();
-		for (lockfree_queue& q : queues)
+		for (queue_type& q : queues)
 		{
 			uint32_t r;
 			CMTS_LIKELY_IF(q.fetch(r))
