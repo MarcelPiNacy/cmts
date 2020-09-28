@@ -1,6 +1,6 @@
 # cmts
 ## About
-cmts is a C++11 header-only library with a C-compatible API that implements a scheduler for cooperative multitasking.
+cmts is a C++14 header-only library with a C-compatible API that implements a scheduler for cooperative multitasking.
 ## Usage
 #### Adding cmts to your project
 Like other C/C++ header-only libraries, you must explicitly include the cmts source code by defining `CMTS_IMPLEMENTATION` and then including `cmts.h`:
