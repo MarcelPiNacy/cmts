@@ -26,37 +26,52 @@
 	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef CMTS_HEADER_INCLUDED
-#define CMTS_HEADER_INCLUDED
-
+#pragma once
 #include <stdint.h>
 
-#ifdef CMTS_MAX_TASKS
-#undef CMTS_MAX_TASKS
+enum : uint32_t
+{
+	CMTS_MAX_TASKS		= 1 << 24,
+	CMTS_NIL_HANDLE		= UINT32_MAX,
+	CMTS_NIL_COUNTER	= CMTS_NIL_HANDLE,
+	CMTS_NIL_FENCE		= CMTS_NIL_HANDLE,
+};
+
+#ifndef CMTS_NODISCARD
+	#ifdef __cplusplus
+		#if defined(__has_attribute)
+			#ifdef __has_attribute(nodiscard)
+				#define CMTS_NODISCARD [[nodiscard]]
+			#else
+				#define CMTS_NODISCARD
+			#endif
+		#else
+			#define CMTS_NODISCARD
+		#endif
+	#else
+		#define CMTS_NODISCARD
+	#endif
 #endif
 
-#ifdef CMTS_NIL_COUNTER
-#undef CMTS_NIL_COUNTER
+
+#ifndef CMTS_MAX_PRIORITY
+#define CMTS_MAX_PRIORITY 3
 #endif
 
-#ifdef CMTS_NIL_FENCE
-#undef CMTS_NIL_FENCE
+#if CMTS_MAX_PRIORITY > 256
+#error "Error, CMTS_MAX_PRIORITY must not exceed 256"
 #endif
 
-#define CMTS_MAX_TASKS ((uint32_t)(1U << 24U))
-#define CMTS_NIL_COUNTER (~(uint32_t)0)
-#define CMTS_NIL_FENCE (~(uint32_t)0)
-
-#ifndef CMTS_QUEUE_PRIORITY_COUNT
-#define CMTS_QUEUE_PRIORITY_COUNT 3
+#ifndef CMTS_EXPECTED_CACHE_LINE_SIZE
+#define CMTS_EXPECTED_CACHE_LINE_SIZE 64
 #endif
 
-#if CMTS_QUEUE_PRIORITY_COUNT > 256
-#error "Error, CMTS_QUEUE_PRIORITY_COUNT must not exceed 256"
+#ifndef CMTS_NOTHROW
+#ifdef __cplusplus
+#define CMTS_NOTHROW noexcept
+#else
+#define CMTS_NOTHROW
 #endif
-
-#ifndef CMTS_TASK_STACK_SIZE
-#define CMTS_TASK_STACK_SIZE 65536
 #endif
 
 #ifndef CMTS_CALLING_CONVENTION
@@ -69,213 +84,90 @@ typedef bool cmts_boolean_t;
 typedef _Bool cmts_boolean_t;
 #endif
 
-typedef void(*cmts_function_pointer_t)(void*);
+typedef void(*cmts_function_pointer_t)(void* parameter);
+typedef void*(*cmts_allocate_function_pointer_t)(size_t size);
+typedef void(*cmts_deallocate_function_pointer_t)(void* memory, size_t size);
 typedef uint64_t cmts_fence_t;
 typedef uint64_t cmts_counter_t;
 
-typedef struct _cmts_options_t
+typedef struct _cmts_allocation_callbacks_t
 {
-	uint32_t use_affinity : 1;
-	uint32_t max_tasks : 24;
+	cmts_allocate_function_pointer_t allocate;
+	cmts_deallocate_function_pointer_t deallocate;
+} cmts_allocation_callbacks_t;
+
+typedef struct _cmts_init_options_t
+{
+	uint32_t max_tasks;
 	uint32_t max_threads;
-	uint32_t first_core; //Ignored if use_affinity is false.
-} cmts_options_t;
+	uint32_t thread_stack_size;
+	uint32_t task_stack_size;
+	union
+	{
+		uint32_t first_core;
+		uint32_t* cpu_indices;
+	};
+	const cmts_allocation_callbacks_t* allocator;
+	bool use_affinity;
+	bool use_manual_affinity;
+} cmts_init_options_t;
+
+typedef enum _cmts_synchronization_type_t
+{
+	CMTS_SYNCHRONIZATION_TYPE_NONE,
+	CMTS_SYNCHRONIZATION_TYPE_FENCE,
+	CMTS_SYNCHRONIZATION_TYPE_COUNTER,
+} cmts_synchronization_type_t;
+
+typedef struct _cmts_dispatch_options_t
+{
+	void* parameter;
+	cmts_fence_t fence;
+	cmts_counter_t counter;
+	cmts_synchronization_type_t synchronization_type;
+	uint8_t priority;
+} cmts_dispatch_options_t;
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
-	/*
-		Initializes the library.
-		Parameters:
-			- max_tasks: Specifies the maximum number of tasks, which must be a power of 2.
-			- max_cpus: Specifies the number of CPU cores to use.
-		Notes:
-			- The library currently locks worker threads to CPU cores using affinity, meaning that cores 0 - max_cpus will always be used.
-			- Currently, the memory buffer used by most data structures in cmts can only be allocated using the operating system's allocator (VirtualAlloc/mmap).
-	*/
-	void CMTS_CALLING_CONVENTION cmts_initialize(uint32_t max_tasks, uint32_t max_cpus);
-
-	/*
-		Suspends all worker threads.
-	*/
-	void CMTS_CALLING_CONVENTION cmts_break();
-
-	/*
-		Resumes all worker threads.
-	*/
-	void CMTS_CALLING_CONVENTION cmts_resume();
-
-	/*
-		Signals to all worker threads to exit once the tasks they are running yield or complete.
-		Notes:
-			- Calling this function from inside a task will not cause the current worker thread to immediately exit.
-	*/
+	bool CMTS_CALLING_CONVENTION cmts_init(const cmts_init_options_t* options);
+	bool CMTS_CALLING_CONVENTION cmts_break();
+	bool CMTS_CALLING_CONVENTION cmts_continue();
 	void CMTS_CALLING_CONVENTION cmts_signal_finalize();
-
-	/*
-		Waits for all worker threads to finish, then deallocates the internal memory buffer.
-	*/
-	void CMTS_CALLING_CONVENTION cmts_finalize();
-
-	/*
-		Terminates all worker threads and deallocates the internal memory buffer.
-	*/
-	void CMTS_CALLING_CONVENTION cmts_terminate();
-
-	/*
-		Returns true if called from inside a task.
-	*/
+	bool CMTS_CALLING_CONVENTION cmts_finalize();
+	bool CMTS_CALLING_CONVENTION cmts_terminate();
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_initialized();
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_task();
-
-	/*
-		Returns whether the library is initialized.
-	*/
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_running();
-
-	/*
-		Submits a task to the corresponding queue.
-		Parameters:
-			- task_function: Specifies the entry point of the task.
-			- param: Specifies the parameter that will be passed to task_function.
-			- priority_level: Specifies the target queue.
-	*/
-	void CMTS_CALLING_CONVENTION cmts_dispatch(cmts_function_pointer_t task_function, void* param, uint8_t priority_level);
-
-	/*
-		Suspend execution of the current task, which is then pushed to the end of its corresponding queue.
-	*/
+	void CMTS_CALLING_CONVENTION cmts_dispatch(cmts_function_pointer_t task_function, const cmts_dispatch_options_t* options);
 	void CMTS_CALLING_CONVENTION cmts_yield();
-
-	/*
-		Finishes execution of the current task.
-	*/
 	void CMTS_CALLING_CONVENTION cmts_exit();
-
-	/*
-		Returns a handle to a fence object. A fence is used for waiting for a single task to finish through cmts_await_fence or cmts_await_fence_and_delete.
-	*/
-	cmts_fence_t CMTS_CALLING_CONVENTION cmts_new_fence();
-
-	/*
-		Returns whether the specified fence handle has expired.
-	*/
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_fence_valid(cmts_fence_t fence);
-
-	/*
-		Sets the fence object's internal value to true.
-	*/
+	CMTS_NODISCARD cmts_fence_t CMTS_CALLING_CONVENTION cmts_new_fence();
+	CMTS_NODISCARD cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_fence_valid(cmts_fence_t fence);
 	void CMTS_CALLING_CONVENTION cmts_signal_fence(cmts_fence_t fence);
-
-	/*
-		Puts the current task to sleep until the specified fence is signaled.
-	*/
 	void CMTS_CALLING_CONVENTION cmts_await_fence(cmts_fence_t fence);
-
-	/*
-		Puts the current task to sleep until the specified fence is signaled. Once the task is resumed, the fence object is deleted.
-	*/
 	void CMTS_CALLING_CONVENTION cmts_await_fence_and_delete(cmts_fence_t fence);
-
-	/*
-		Deletes the specified fence object.
-	*/
 	void CMTS_CALLING_CONVENTION cmts_delete_fence(cmts_fence_t fence);
-
-	/*
-		Returns a handle to a counter object. A counter is used for waiting for multiple tasks to finish through cmts_await_counter or cmts_await_counter_and_delete.
-		Internally, a counter object owns a 32-bit atomic variable that is decremented every time that an associated task finishes. Once this variable reaches zero, all waiting tasks are pushed to their corresponding queues.
-		Parameters:
-			- start_value: Sets the counter's internal value.
-	*/
-	cmts_counter_t CMTS_CALLING_CONVENTION cmts_new_counter(uint32_t start_value);
-
-	/*
-		Returns whether the specified counter handle has expired.
-	*/
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_counter_valid(cmts_counter_t counter);
-
-	/*
-		Sets the counter object's internal value.
-	*/
-	void CMTS_CALLING_CONVENTION cmts_set_counter(cmts_counter_t counter, uint32_t value);
-
-	/*
-		Increments the counter object's internal value.
-	*/
-	void CMTS_CALLING_CONVENTION cmts_increment_counter(cmts_counter_t counter);
-
-	/*
-		Decrements the counter object's internal value.
-	*/
-	void CMTS_CALLING_CONVENTION cmts_decrement_counter(cmts_counter_t counter);
-
-	/*
-		Puts the current task to sleep until the specified counter reaches zero.
-	*/
+	CMTS_NODISCARD cmts_counter_t CMTS_CALLING_CONVENTION cmts_new_counter(uint32_t start_value);
+	CMTS_NODISCARD cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_counter_valid(cmts_counter_t counter);
 	void CMTS_CALLING_CONVENTION cmts_await_counter(cmts_counter_t counter);
-
-	/*
-		Puts the current task to sleep until the specified counter's value reaches zero. Once the task is resumed, the counter object is deleted.
-	*/
 	void CMTS_CALLING_CONVENTION cmts_await_counter_and_delete(cmts_counter_t counter);
-
-	/*
-		Deletes the specified counter object.
-	*/
 	void CMTS_CALLING_CONVENTION cmts_delete_counter(cmts_counter_t counter);
-
-	/*
-		Submits a task to the corresponding queue with an associated fence.
-		Parameters:
-			- task_function: Specifies the entry point of the task.
-			- param: Specifies the parameter that will be passed to task_function.
-			- priority_level: Specifies the target queue.
-			- fence: A valid handle to a fence object.
-	*/
 	void CMTS_CALLING_CONVENTION cmts_dispatch_with_fence(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_fence_t fence);
-
-	/*
-		Submits a task to the corresponding queue with an associated counter.
-		Parameters:
-			- task_function: Specifies the entry point of the task.
-			- param: Specifies the parameter that will be passed to task_function.
-			- priority_level: Specifies the target queue.
-			- counter: A valid handle to a counter object.
-	*/
 	void CMTS_CALLING_CONVENTION cmts_dispatch_with_counter(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_counter_t counter);
-
-	/*
-		Returns the id of the current task.
-	*/
 	uint32_t CMTS_CALLING_CONVENTION cmts_current_task_id();
-
-	/*
-		Returns the current CPU core index.
-	*/
-	uint32_t CMTS_CALLING_CONVENTION cmts_current_cpu();
-
-	/*
-		Return the number of CPU cores used by cmts.
-	*/
-	uint32_t CMTS_CALLING_CONVENTION cmts_used_cpu_count();
-
-	/*
-		Return the number of available CPU cores.
-	*/
+	uint32_t CMTS_CALLING_CONVENTION cmts_worker_thread_index();
+	uint32_t CMTS_CALLING_CONVENTION cmts_thread_count();
 	uint32_t CMTS_CALLING_CONVENTION cmts_available_cpu_count();
 
 #ifdef __cplusplus
 }
 #endif
 
-#ifdef CMTS_IMPLEMENTATION
-#ifdef _WIN32
-#include "cmts_windows.cpp"
-#else
-#error "cmts currently doesn't support this target platform."
-#endif
-#endif
 
-#endif //CMTS_HEADER_INCLUDED
+
+#ifdef CMTS_IMPLEMENTATION
+#include "source/implementation.cpp"
+#endif
