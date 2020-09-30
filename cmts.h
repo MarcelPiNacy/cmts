@@ -87,8 +87,9 @@ typedef _Bool cmts_boolean_t;
 typedef void(*cmts_function_pointer_t)(void* parameter);
 typedef void*(*cmts_allocate_function_pointer_t)(size_t size);
 typedef void(*cmts_deallocate_function_pointer_t)(void* memory, size_t size);
-typedef uint64_t cmts_fence_t;
-typedef uint64_t cmts_counter_t;
+typedef uint64_t cmts_handle_t;
+typedef cmts_handle_t cmts_fence_t;
+typedef cmts_handle_t cmts_counter_t;
 
 typedef struct _cmts_allocation_callbacks_t
 {
@@ -123,11 +124,7 @@ typedef enum _cmts_synchronization_type_t
 typedef struct _cmts_dispatch_options_t
 {
 	void* parameter;
-	union
-	{
-		cmts_fence_t fence;
-		cmts_counter_t counter;
-	};
+	cmts_handle_t sync_object;
 	cmts_synchronization_type_t synchronization_type;
 	uint8_t priority;
 } cmts_dispatch_options_t;

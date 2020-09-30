@@ -35,6 +35,7 @@
 #define CMTS_UNREACHABLE __builtin_unreachable()
 #define CMTS_ALLOCA(size) __builtin_alloca((size))
 #define CMTS_POPCOUNT(value) __builtin_popcount((value))
+#define CMTS_UNSIGNED_LOG2(value) __builtin_ffs((value))
 #ifdef CMTS_DEBUG
 #define CMTS_UNREACHABLE __builtin_trap()
 #define CMTS_INLINE_ALWAYS
@@ -58,6 +59,7 @@
 #define CMTS_ASSUME(expression) __assume((expression))
 #define CMTS_ALLOCA(size) _alloca((size))
 #define CMTS_POPCOUNT(value) __popcnt((value))
+#define CMTS_UNSIGNED_LOG2(value) _tzcnt_u32((value))
 #define CMTS_TERMINATE __fastfail(-1)
 #ifdef CMTS_DEBUG
 #define CMTS_UNREACHABLE CMTS_TERMINATE; CMTS_ASSUME(0)
