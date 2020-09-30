@@ -94,38 +94,6 @@ static void CMTS_CALLING_CONVENTION load_cache_line_info() CMTS_NOTHROW
 	CMTS_UNREACHABLE;
 }
 
-static CMTS_INLINE_ALWAYS uint_fast32_t CMTS_CALLING_CONVENTION optional(bool condition, uint_fast32_t value) CMTS_NOTHROW
-{
-	return (uint_fast32_t)((-(int32_t)condition) & (int32_t)value);
-}
-
-static CMTS_INLINE_ALWAYS uint_fast64_t CMTS_CALLING_CONVENTION optional(bool condition, uint_fast64_t value) CMTS_NOTHROW
-{
-	return (uint_fast64_t)((-(int64_t)condition) & (int64_t)value);
-}
-
-template <typename T>
-static CMTS_INLINE_ALWAYS T* CMTS_CALLING_CONVENTION optional(bool condition, T* value) CMTS_NOTHROW
-{
-	return (T*)optional(condition, (size_t)value);
-}
-
-static CMTS_INLINE_ALWAYS uint_fast32_t CMTS_CALLING_CONVENTION select(bool condition, uint_fast32_t on_true, uint_fast32_t on_false) CMTS_NOTHROW
-{
-	return optional(condition, on_true) | optional(!condition, on_false);
-}
-
-static CMTS_INLINE_ALWAYS uint_fast64_t CMTS_CALLING_CONVENTION select(bool condition, uint_fast64_t on_true, uint_fast64_t on_false) CMTS_NOTHROW
-{
-	return optional(condition, on_true) | optional(!condition, on_false);
-}
-
-template <typename T>
-static CMTS_INLINE_ALWAYS T* CMTS_CALLING_CONVENTION select(bool condition, T* on_true, T* on_false) CMTS_NOTHROW
-{
-	return (T*)select(condition, (size_t)on_true, (size_t)on_false);
-}
-
 template <typename T>
 static CMTS_INLINE_ALWAYS T CMTS_CALLING_CONVENTION non_atomic_load(const std::atomic<T>& from) CMTS_NOTHROW
 {
@@ -182,7 +150,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 		while (true)
 		{
 			bool tmp = false;
-			CMTS_UNLIKELY_IF(!non_atomic_load(spinlock))
+			CMTS_UNLIKELY_IF(!spinlock.load(std::memory_order_acquire))
 				CMTS_LIKELY_IF(spinlock.compare_exchange_weak(tmp, true, std::memory_order_acquire, std::memory_order_relaxed))
 					break;
 			CMTS_YIELD_CPU;
@@ -894,7 +862,7 @@ extern "C"
 			if (e.sync_type != CMTS_SYNCHRONIZATION_TYPE_NONE)
 			{
 				const uint_fast32_t sync_generation = (uint_fast32_t)(options->sync_object >> 32);
-				const uint_fast32_t generation = *(const uint32_t*)select<void>(e.sync_type == CMTS_SYNCHRONIZATION_TYPE_FENCE, fence_pool_ptr + e.sync_id, counter_pool_ptr + e.sync_id);
+				const uint_fast32_t generation = *(e.sync_type == CMTS_SYNCHRONIZATION_TYPE_FENCE ? (const uint32_t*)(fence_pool_ptr + e.sync_id) : (const uint32_t*)(counter_pool_ptr + e.sync_id));
 				CMTS_UNLIKELY_IF(sync_generation != generation)
 				{
 					shared_pool_release(fiber_pool_ctrl, fiber_pool_ptr, id);
