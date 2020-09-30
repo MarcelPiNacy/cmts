@@ -13,6 +13,7 @@
 #define CMTS_OS_ALLOCATE(size) VirtualAlloc(nullptr, (size), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 #define CMTS_YIELD_CURRENT_THREAD SwitchToThread()
 #define CMTS_DEFAULT_THREAD_STACK_SIZE (1 << 21)
+#define CMTS_DEFAULT_TASK_STACK_SIZE (1 << 16)
 #else
 #error "cmts: UNSUPPORTED OPERATING SYSTEM"
 #endif
@@ -35,9 +36,11 @@
 #define CMTS_ALLOCA(size) __builtin_alloca((size))
 #define CMTS_POPCOUNT(value) __builtin_popcount((value))
 #ifdef CMTS_DEBUG
+#define CMTS_UNREACHABLE __builtin_trap()
 #define CMTS_INLINE_ALWAYS
 #define CMTS_INLINE_NEVER
 #else
+#define CMTS_UNREACHABLE __builtin_unreachable()
 #define CMTS_INLINE_ALWAYS __attribute__((always_inline))
 #define CMTS_INLINE_NEVER __attribute__((noinline))
 #endif
@@ -53,13 +56,15 @@
 #define CMTS_LIKELY_IF(expression) if ((expression))
 #define CMTS_UNLIKELY_IF(expression) if ((expression))
 #define CMTS_ASSUME(expression) __assume((expression))
-#define CMTS_UNREACHABLE CMTS_ASSUME(0)
 #define CMTS_ALLOCA(size) _alloca((size))
 #define CMTS_POPCOUNT(value) __popcnt((value))
+#define CMTS_TERMINATE __fastfail(-1)
 #ifdef CMTS_DEBUG
+#define CMTS_UNREACHABLE CMTS_TERMINATE; CMTS_ASSUME(0)
 #define CMTS_INLINE_ALWAYS
 #define CMTS_INLINE_NEVER
 #else
+#define CMTS_UNREACHABLE CMTS_ASSUME(0)
 #define CMTS_INLINE_ALWAYS __forceinline
 #define CMTS_INLINE_NEVER __declspec(noinline)
 #endif
@@ -71,11 +76,5 @@
 static_assert(CMTS_POPCOUNT(CMTS_EXPECTED_CACHE_LINE_SIZE) == 1, "CMTS_EXPECTED_CACHE_LINE_SIZE MUST BE A POWER OF TWO");
 #endif
 
-#ifdef CMTS_DEBUG
-#include <assert.h>
-#define CMTS_ASSERT(expression) assert((expression))
-#define CMTS_ASSERT_SIDE_EFFECTS(expression) assert((expression))
-#else
-#define CMTS_ASSERT(expression) CMTS_ASSUME((expression))
-#define CMTS_ASSERT_SIDE_EFFECTS(expression) expression
-#endif
+#define CMTS_ROUND_TO_ALIGNMENT(K, A)	((K + ((A) - 1)) & ~(A - 1))
+#define CMTS_FLOOR_TO_ALIGNMENT(K, A)	((K) & ~(A - 1))

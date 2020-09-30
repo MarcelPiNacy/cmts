@@ -108,8 +108,8 @@ typedef struct _cmts_init_options_t
 		uint32_t* cpu_indices;
 	};
 	const cmts_allocation_callbacks_t* allocator;
-	bool use_affinity;
-	bool use_manual_affinity;
+	cmts_boolean_t use_affinity;
+	cmts_boolean_t use_manual_affinity;
 } cmts_init_options_t;
 
 typedef enum _cmts_synchronization_type_t
@@ -117,13 +117,17 @@ typedef enum _cmts_synchronization_type_t
 	CMTS_SYNCHRONIZATION_TYPE_NONE,
 	CMTS_SYNCHRONIZATION_TYPE_FENCE,
 	CMTS_SYNCHRONIZATION_TYPE_COUNTER,
+	CMTS_SYNCHRONIZATION_TYPE_MAX_ENUM,
 } cmts_synchronization_type_t;
 
 typedef struct _cmts_dispatch_options_t
 {
 	void* parameter;
-	cmts_fence_t fence;
-	cmts_counter_t counter;
+	union
+	{
+		cmts_fence_t fence;
+		cmts_counter_t counter;
+	};
 	cmts_synchronization_type_t synchronization_type;
 	uint8_t priority;
 } cmts_dispatch_options_t;
@@ -131,17 +135,16 @@ typedef struct _cmts_dispatch_options_t
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-	bool CMTS_CALLING_CONVENTION cmts_init(const cmts_init_options_t* options);
-	bool CMTS_CALLING_CONVENTION cmts_break();
-	bool CMTS_CALLING_CONVENTION cmts_continue();
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_init(const cmts_init_options_t* options);
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_break();
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_continue();
 	void CMTS_CALLING_CONVENTION cmts_signal_finalize();
-	bool CMTS_CALLING_CONVENTION cmts_finalize();
-	bool CMTS_CALLING_CONVENTION cmts_terminate();
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_finalize();
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_terminate();
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_initialized();
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_task();
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_running();
-	void CMTS_CALLING_CONVENTION cmts_dispatch(cmts_function_pointer_t task_function, const cmts_dispatch_options_t* options);
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_dispatch(cmts_function_pointer_t task_function, const cmts_dispatch_options_t* options);
 	void CMTS_CALLING_CONVENTION cmts_yield();
 	void CMTS_CALLING_CONVENTION cmts_exit();
 	CMTS_NODISCARD cmts_fence_t CMTS_CALLING_CONVENTION cmts_new_fence();
@@ -155,13 +158,12 @@ extern "C" {
 	void CMTS_CALLING_CONVENTION cmts_await_counter(cmts_counter_t counter);
 	void CMTS_CALLING_CONVENTION cmts_await_counter_and_delete(cmts_counter_t counter);
 	void CMTS_CALLING_CONVENTION cmts_delete_counter(cmts_counter_t counter);
-	void CMTS_CALLING_CONVENTION cmts_dispatch_with_fence(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_fence_t fence);
-	void CMTS_CALLING_CONVENTION cmts_dispatch_with_counter(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_counter_t counter);
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_dispatch_with_fence(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_fence_t fence);
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_dispatch_with_counter(cmts_function_pointer_t task_function, void* param, uint8_t priority_level, cmts_counter_t counter);
 	uint32_t CMTS_CALLING_CONVENTION cmts_current_task_id();
 	uint32_t CMTS_CALLING_CONVENTION cmts_worker_thread_index();
 	uint32_t CMTS_CALLING_CONVENTION cmts_thread_count();
 	uint32_t CMTS_CALLING_CONVENTION cmts_available_cpu_count();
-
 #ifdef __cplusplus
 }
 #endif
