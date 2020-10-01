@@ -26,8 +26,91 @@
 	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "../cmts.h"
-#include "common.cpp"
+
+
+#ifdef _WIN32
+#include <atomic>
+
+#if (defined(DEBUG) || defined(_DEBUG) || !defined(NDEBUG)) && !defined(CMTS_DEBUG)
+#define CMTS_DEBUG
+#endif
+
+#ifdef _WIN32
+#define CMTS_OS_WINDOWS
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#define NOMINMAX
+#include <Windows.h>
+#define CMTS_OS_ALLOCATE(size) VirtualAlloc(nullptr, (size), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#define CMTS_YIELD_CURRENT_THREAD SwitchToThread()
+#define CMTS_DEFAULT_THREAD_STACK_SIZE (1 << 21)
+#define CMTS_DEFAULT_TASK_STACK_SIZE (1 << 16)
+#else
+#error "cmts: UNSUPPORTED OPERATING SYSTEM"
+#endif
+
+#ifdef __clang__
+#if defined(__arm__) || defined(__aarch64__)
+#define CMTS_NOOP __nop()
+#define CMTS_YIELD_CPU __yield()
+#elif defined(__i386__) || defined(__x86_64__)
+#include <intrin.h>
+#define CMTS_NOOP __nop()
+#define CMTS_YIELD_CPU _mm_pause()
+#else
+#error "UNSUPPORTED PROCESSOR ARCHITECTURE"
+#endif
+#define CMTS_LIKELY_IF(expression) if (__builtin_expect((expression), 1))
+#define CMTS_UNLIKELY_IF(expression) if (__builtin_expect((expression), 0))
+#define CMTS_ASSUME(expression) __builtin_assume((expression))
+#define CMTS_UNREACHABLE __builtin_unreachable()
+#define CMTS_ALLOCA(size) __builtin_alloca((size))
+#define CMTS_POPCOUNT(value) __builtin_popcount((value))
+#define CMTS_UNSIGNED_LOG2(value) __builtin_ffs((value))
+#ifdef CMTS_DEBUG
+#define CMTS_UNREACHABLE __builtin_trap()
+#define CMTS_INLINE_ALWAYS
+#define CMTS_INLINE_NEVER
+#else
+#define CMTS_UNREACHABLE __builtin_unreachable()
+#define CMTS_INLINE_ALWAYS __attribute__((always_inline))
+#define CMTS_INLINE_NEVER __attribute__((noinline))
+#endif
+#elif defined(_MSC_VER) || defined(_MSVC_LANG)
+#if defined(_M_ARM) || defined(_M_ARM64)
+#define CMTS_YIELD_CPU __yield()
+#elif defined(_M_IX86) || defined(_M_AMD64)
+#include <intrin.h>
+#define CMTS_YIELD_CPU _mm_pause()
+#else
+#error "UNSUPPORTED PROCESSOR ARCHITECTURE"
+#endif
+#define CMTS_LIKELY_IF(expression) if ((expression))
+#define CMTS_UNLIKELY_IF(expression) if ((expression))
+#define CMTS_ASSUME(expression) __assume((expression))
+#define CMTS_ALLOCA(size) _alloca((size))
+#define CMTS_POPCOUNT(value) __popcnt((value))
+#define CMTS_UNSIGNED_LOG2(value) _tzcnt_u32((value))
+#define CMTS_TERMINATE __fastfail(-1)
+#ifdef CMTS_DEBUG
+#define CMTS_UNREACHABLE CMTS_TERMINATE; CMTS_ASSUME(0)
+#define CMTS_INLINE_ALWAYS
+#define CMTS_INLINE_NEVER
+#else
+#define CMTS_UNREACHABLE CMTS_ASSUME(0)
+#define CMTS_INLINE_ALWAYS __forceinline
+#define CMTS_INLINE_NEVER __declspec(noinline)
+#endif
+#else
+#error "cmts: UNSUPPORTED COMPILER";
+#endif
+
+#if CMTS_EXPECTED_CACHE_LINE_SIZE != 64
+static_assert(CMTS_POPCOUNT(CMTS_EXPECTED_CACHE_LINE_SIZE) == 1, "CMTS_EXPECTED_CACHE_LINE_SIZE MUST BE A POWER OF TWO");
+#endif
+
+#define CMTS_ROUND_TO_ALIGNMENT(K, A)	((K + ((A) - 1)) & ~(A - 1))
+#define CMTS_FLOOR_TO_ALIGNMENT(K, A)	((K) & ~(A - 1))
 
 enum cmts_common_constants : uint_fast32_t
 {
@@ -61,7 +144,7 @@ static uint_fast32_t				max_tasks;
 static uint_fast32_t				thread_count;
 static uint_fast32_t				queue_capacity_log2;
 static uint_fast32_t				queue_capacity_mask;
-static HANDLE*						threads_ptr;
+static HANDLE* threads_ptr;
 static thread_local HANDLE			root_fiber;
 static thread_local uint_fast32_t	current_fiber;
 static thread_local uint_fast32_t	processor_index;
@@ -111,10 +194,10 @@ static CMTS_INLINE_ALWAYS void CMTS_CALLING_CONVENTION non_atomic_store(std::ato
 struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 {
 	alignas(CMTS_EXPECTED_CACHE_LINE_SIZE)
-	std::atomic_bool	spinlock;
+		std::atomic_bool	spinlock;
 	uint_fast32_t		head;
 	uint_fast32_t		tail;
-	uint32_t*			values;
+	uint32_t* values;
 
 	static constexpr size_t ENTRY_SIZE = sizeof(uint32_t);
 
@@ -131,7 +214,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 			bool tmp = false;
 			CMTS_UNLIKELY_IF(!non_atomic_load(spinlock))
 				CMTS_LIKELY_IF(spinlock.compare_exchange_weak(tmp, true, std::memory_order_acquire, std::memory_order_relaxed))
-					break;
+				break;
 			CMTS_YIELD_CPU;
 		}
 		const uint_fast32_t nh = head + 1;
@@ -152,7 +235,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 			bool tmp = false;
 			CMTS_UNLIKELY_IF(!spinlock.load(std::memory_order_acquire))
 				CMTS_LIKELY_IF(spinlock.compare_exchange_weak(tmp, true, std::memory_order_acquire, std::memory_order_relaxed))
-					break;
+				break;
 			CMTS_YIELD_CPU;
 		}
 		uint_fast32_t r = CMTS_NIL_HANDLE;
@@ -230,7 +313,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 			nc.generation = c.generation + 1;
 			CMTS_LIKELY_IF(ctrl.load(std::memory_order_acquire).mask() == c.mask())
 				CMTS_LIKELY_IF(ctrl.compare_exchange_weak(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
-					break;
+				break;
 			CMTS_YIELD_CPU;
 		}
 		const uint_fast32_t index = adjust_index(c.head);
@@ -245,7 +328,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 				f.value = value;
 				CMTS_LIKELY_IF(target.load(std::memory_order_acquire).mask() == e.mask())
 					CMTS_LIKELY_IF(target.compare_exchange_weak(e, f, std::memory_order_release, std::memory_order_relaxed))
-						break;
+					break;
 			}
 			CMTS_YIELD_CPU;
 		}
@@ -267,7 +350,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 			nc.generation = c.generation + 1;
 			CMTS_LIKELY_IF(ctrl.load(std::memory_order_acquire).mask() == c.mask())
 				CMTS_LIKELY_IF(ctrl.compare_exchange_weak(c, nc, std::memory_order_acquire, std::memory_order_relaxed))
-					break;
+				break;
 			CMTS_YIELD_CPU;
 		}
 		const uint_fast32_t index = adjust_index(c.tail);
@@ -282,7 +365,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 				r = e.value;
 				CMTS_LIKELY_IF(target.load(std::memory_order_acquire).mask() == e.mask())
 					CMTS_LIKELY_IF(target.compare_exchange_weak(e, f, std::memory_order_release, std::memory_order_relaxed))
-						break;
+					break;
 			}
 			CMTS_YIELD_CPU;
 		}
@@ -329,7 +412,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) fiber_state
 
 	HANDLE						handle;
 	F							function;
-	void*						parameter;
+	void* parameter;
 	uint32_t					pool_next;
 	uint32_t					sync_id;
 	uint32_t					wait_next;
@@ -400,17 +483,17 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION shared_pool_acqu
 		}
 		else
 		{
-			CMTS_UNLIKELY_IF(c.size == max_tasks)
-				return CMTS_NIL_HANDLE;
-			r = c.size;
-			CMTS_ASSERT(r < CMTS_UINT24_MAX && r < max_tasks);
-			nc.freelist = CMTS_UINT24_MAX;
-			nc.size = c.size + 1;
+		CMTS_UNLIKELY_IF(c.size == max_tasks)
+			return CMTS_NIL_HANDLE;
+		r = c.size;
+		CMTS_ASSERT(r < CMTS_UINT24_MAX&& r < max_tasks);
+		nc.freelist = CMTS_UINT24_MAX;
+		nc.size = c.size + 1;
 		}
 		nc.generation = c.generation + 1;
 		CMTS_LIKELY_IF(ctrl.load(std::memory_order_acquire).mask() == c.mask())
 			CMTS_LIKELY_IF(ctrl.compare_exchange_weak(c, nc, std::memory_order_release, std::memory_order_relaxed))
-				return r;
+			return r;
 		CMTS_YIELD_CPU;
 	}
 }
@@ -430,7 +513,7 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION shared_pool_release(std::
 		nc.generation = c.generation + 1;
 		CMTS_LIKELY_IF(ctrl.load(std::memory_order_acquire).mask() == c.mask())
 			CMTS_LIKELY_IF(ctrl.compare_exchange_weak(c, nc, std::memory_order_release, std::memory_order_relaxed))
-				break;
+			break;
 		CMTS_YIELD_CPU;
 	}
 }
@@ -441,9 +524,9 @@ CMTS_INLINE_NEVER static void CMTS_CALLING_CONVENTION shared_pool_release_no_inl
 	::shared_pool_release<T>(ctrl, elements, index);
 }
 
-static fiber_state*																fiber_pool_ptr;
-static fence_state*																fence_pool_ptr;
-static counter_state*															counter_pool_ptr;
+static fiber_state* fiber_pool_ptr;
+static fence_state* fence_pool_ptr;
+static counter_state* counter_pool_ptr;
 
 alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	fiber_pool_ctrl;
 alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	fence_pool_ctrl;
@@ -474,7 +557,7 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_wait_list(
 		nc.generation = c.generation + 1;
 		CMTS_LIKELY_IF(ctrl.load(std::memory_order_acquire).mask() == c.mask())
 			CMTS_LIKELY_IF(ctrl.compare_exchange_weak(c, nc, std::memory_order_release, std::memory_order_relaxed))
-				return c.head;
+			return c.head;
 		CMTS_YIELD_CPU;
 	}
 }
@@ -690,12 +773,12 @@ static bool CMTS_CALLING_CONVENTION custom_library_init(const cmts_init_options_
 	}
 	else
 	{
-		for (uint_fast32_t i = 0; i < thread_count; ++i)
-		{
-			threads_ptr[i] = CreateThread(nullptr, CMTS_DEFAULT_THREAD_STACK_SIZE, thread_main, (void*)(size_t)i, 0, nullptr);
-			CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
-				return false;
-		}
+	for (uint_fast32_t i = 0; i < thread_count; ++i)
+	{
+		threads_ptr[i] = CreateThread(nullptr, CMTS_DEFAULT_THREAD_STACK_SIZE, thread_main, (void*)(size_t)i, 0, nullptr);
+		CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
+			return false;
+	}
 	}
 
 	return true;
@@ -754,7 +837,7 @@ extern "C"
 		CMTS_LIKELY_IF(options != nullptr)
 			return custom_library_init(options);
 		else
-			return default_library_init();
+		return default_library_init();
 	}
 
 	bool CMTS_CALLING_CONVENTION cmts_break()
@@ -1122,3 +1205,4 @@ extern "C"
 	}
 
 }
+#endif
