@@ -123,7 +123,7 @@ static_assert(CMTS_POPCOUNT(CMTS_EXPECTED_CACHE_LINE_SIZE) == 1, "CMTS_EXPECTED_
 #define CMTS_DEFAULT_THREAD_STACK_SIZE (1U << 21U)
 
 #ifdef CMTS_DEBUG
-#include <assert.h>
+#include <cassert>
 #include "..\cmts.h"
 #define CMTS_ASSERT(expression) assert(expression)
 #define CMTS_ASSERT_IS_TASK CMTS_ASSERT(root_fiber != nullptr)
@@ -284,6 +284,18 @@ struct alignas(uint32_t) task_mutex
 				head : 31;
 };
 
+alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<bool> is_paused;
+alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<bool> should_continue;
+
+CMTS_INLINE_NEVER static CMTS_CALLING_CONVENTION void conditionally_exit_thread() CMTS_NOTHROW
+{
+	CMTS_UNLIKELY_IF(!should_continue.load(std::memory_order_acquire))
+	{
+		ExitThread(0);
+		CMTS_UNREACHABLE;
+	}
+}
+
 struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 {
 	struct alignas(uint64_t) control_block
@@ -337,6 +349,8 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 		entry_type e, f;
 		while (true)
 		{
+			CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+				conditionally_exit_thread();
 			c = ctrl.load(std::memory_order_acquire);
 			nc.head = c.head + 1;
 			CMTS_UNLIKELY_IF(nc.head == c.tail)
@@ -352,6 +366,8 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 		std::atomic<entry_type>& target = entries[index];
 		while (true)
 		{
+			CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+				conditionally_exit_thread();
 			e = target.load(std::memory_order_acquire);
 			CMTS_LIKELY_IF(!e.is_used)
 			{
@@ -374,6 +390,8 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 		entry_type e, f;
 		while (true)
 		{
+			CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+				conditionally_exit_thread();
 			c = ctrl.load(std::memory_order_acquire);
 			CMTS_UNLIKELY_IF(c.head == c.tail)
 				return CMTS_NIL_HANDLE;
@@ -389,6 +407,8 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue
 		std::atomic<entry_type>& target = entries[index];
 		while (true)
 		{
+			CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+				conditionally_exit_thread();
 			e = target.load(std::memory_order_acquire);
 			CMTS_LIKELY_IF(e.is_used)
 			{
@@ -413,6 +433,8 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION shared_pool_acqu
 	pool_control_block c, nc;
 	while (true)
 	{
+		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+			conditionally_exit_thread();
 		c = ctrl.load(std::memory_order_acquire);
 		CMTS_LIKELY_IF(c.freelist != CMTS_UINT24_MAX)
 		{
@@ -446,6 +468,8 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION shared_pool_release(std::
 	pool_control_block c, nc;
 	while (true)
 	{
+		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+			conditionally_exit_thread();
 		c = ctrl.load(std::memory_order_acquire);
 		elements[index].pool_next = c.freelist;
 		nc.freelist = index;
@@ -471,22 +495,14 @@ alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	fi
 alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	fence_pool_ctrl;
 alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	counter_pool_ctrl;
 alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static cmts_shared_queue					queues[CMTS_MAX_PRIORITY];
-alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<bool>					should_continue;
-
-CMTS_INLINE_NEVER static CMTS_CALLING_CONVENTION void conditionally_exit_thread() CMTS_NOTHROW
-{
-	CMTS_UNLIKELY_IF(!should_continue.load(std::memory_order_acquire))
-	{
-		ExitThread(0);
-		CMTS_UNREACHABLE;
-	}
-}
 
 CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_wait_list(std::atomic<wait_list_control_block>& ctrl) CMTS_NOTHROW
 {
 	wait_list_control_block c, nc;
 	while (true)
 	{
+		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+			conditionally_exit_thread();
 		c = ctrl.load(std::memory_order_acquire);
 		CMTS_UNLIKELY_IF(c.head == CMTS_NIL_HANDLE)
 			return CMTS_NIL_HANDLE;
@@ -520,6 +536,8 @@ CMTS_INLINE_ALWAYS static bool CMTS_CALLING_CONVENTION append_wait_list(T& state
 {
 	while (true)
 	{
+		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+			conditionally_exit_thread();
 		CMTS_UNLIKELY_IF(state.is_done())
 			return false;
 		CMTS_LIKELY_IF(try_append_wait_list(state.wait_list, index))
@@ -534,8 +552,6 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION submit_to_queue(const uin
 	CMTS_ASSERT(priority < CMTS_MAX_PRIORITY);
 	while (true)
 	{
-		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
-			conditionally_exit_thread();
 		CMTS_LIKELY_IF(queues[priority].store(fiber))
 			break;
 		CMTS_YIELD_CPU;
@@ -572,8 +588,6 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_fiber_from
 	uint_fast32_t r;
 	while (true)
 	{
-		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
-			conditionally_exit_thread();
 		for (uint_fast32_t i = 0; i < CMTS_MAX_PRIORITY; ++i)
 		{
 			r = queues[i].fetch();
@@ -650,10 +664,10 @@ static DWORD WINAPI thread_main(void* param) CMTS_NOTHROW
 static bool CMTS_CALLING_CONVENTION custom_library_init(const cmts_init_options_t* options) CMTS_NOTHROW
 {
 	CMTS_UNLIKELY_IF(options->max_tasks > CMTS_MAX_TASKS ||
-		options->task_stack_size != 0 ||
-		options->max_threads != 0 ||
+		options->task_stack_size == 0 ||
+		options->max_threads == 0 ||
 		CMTS_POPCOUNT(options->max_tasks) != 1 ||
-		options->max_tasks != 0)
+		options->max_tasks == 0)
 		return false;
 	load_cache_line_info();
 	task_stack_size = options->task_stack_size;
@@ -795,13 +809,13 @@ extern "C"
 			CMTS_UNLIKELY_IF(r == MAXDWORD)
 				return false;
 		}
+		is_paused.store(true, std::memory_order_release);
 		return true;
 	}
 
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_continue()
 	{
-		CMTS_UNLIKELY_IF(threads_ptr == nullptr)
-			return false;
+		CMTS_ASSERT_IS_INITIALIZED;
 		for (uint_fast32_t i = 0; i < thread_count; ++i)
 		{
 			CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
@@ -810,6 +824,7 @@ extern "C"
 			CMTS_UNLIKELY_IF(r == MAXDWORD)
 				return false;
 		}
+		is_paused.store(false, std::memory_order_release);
 		return true;
 	}
 
@@ -821,11 +836,13 @@ extern "C"
 
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_finalize(cmts_deallocate_function_pointer_t deallocate)
 	{
-		CMTS_UNLIKELY_IF(threads_ptr == nullptr)
-			return false;
+		CMTS_ASSERT_IS_INITIALIZED;
 		const DWORD r = WaitForMultipleObjects(thread_count, threads_ptr, true, INFINITE);
 		CMTS_UNLIKELY_IF(r != WAIT_OBJECT_0)
 			return false;
+		for (uint_fast32_t i = 0; i < thread_count; ++i)
+			CMTS_UNLIKELY_IF(CloseHandle(threads_ptr[i]))
+				return false;
 		if (deallocate == nullptr)
 		{
 			CMTS_UNLIKELY_IF(!VirtualFree(threads_ptr, 0, MEM_RELEASE))
@@ -845,9 +862,7 @@ extern "C"
 
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_terminate(cmts_deallocate_function_pointer_t deallocate)
 	{
-		CMTS_UNLIKELY_IF(threads_ptr == nullptr)
-			return false;
-
+		CMTS_ASSERT_IS_INITIALIZED;
 		cmts_signal_finalize();
 		for (uint_fast32_t i = 0; i < thread_count; ++i)
 		{
@@ -855,6 +870,8 @@ extern "C"
 				return false;
 			const DWORD r = TerminateThread(threads_ptr[i], MAXDWORD);
 			CMTS_UNLIKELY_IF(r == 0)
+				return false;
+			CMTS_UNLIKELY_IF(CloseHandle(threads_ptr[i]))
 				return false;
 		}
 
@@ -891,6 +908,12 @@ extern "C"
 	{
 		CMTS_ASSERT_IS_INITIALIZED;
 		return non_atomic_load(should_continue);
+	}
+
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_paused()
+	{
+		CMTS_ASSERT_IS_INITIALIZED;
+		return non_atomic_load(is_paused);
 	}
 
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_dispatch(cmts_function_pointer_t entry_point, const cmts_dispatch_options_t* options)

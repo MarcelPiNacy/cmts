@@ -252,7 +252,7 @@ extern "C" {
 	/// Waits for all worker threads to exit and releases the resources used by the library.
 	/// </summary>
 	/// <param name="deallocate">
-	/// Specifies the memory deallocation function.
+	/// Specifies the memory deallocation function. If set to nullptr, the operating system's memory allocator is used (VirtualFree on Windows, munmap on Linux)
 	/// </param>
 	/// <returns>
 	/// True if the operation succeeded, false otherwise.
@@ -293,6 +293,14 @@ extern "C" {
 	/// True if the scheduler is running, false otherwise.
 	/// </returns>
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_live();
+
+	/// <summary>
+	/// Returns whether the scheduler is running
+	/// </summary>
+	/// <returns>
+	/// True if the scheduler is running, false otherwise.
+	/// </returns>
+	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_paused();
 
 	/// <summary>
 	/// Submits a task to the cmts scheduler.
@@ -492,6 +500,18 @@ extern "C" {
 	/// This function does not require the library to be initialized.
 	/// </returns>
 	uint32_t CMTS_CALLING_CONVENTION cmts_core_count();
+
+	/// <summary>
+	/// Dispatches a group of tasks and then waits for them to complete. Effectively equivalent to:
+	/// for (uint32_t i = begin; i < end; ++i)
+	/// {
+	/// }
+	/// </summary>
+	/// <param name="begin"></param>
+	/// <param name="end"></param>
+	/// <param name="body"></param>
+	/// <returns></returns>
+	void CMTS_CALLING_CONVENTION cmts_parallel_for(uint32_t begin, uint32_t end, cmts_function_pointer_t body);
 
 #ifdef __cplusplus
 }
