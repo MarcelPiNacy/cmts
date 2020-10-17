@@ -163,6 +163,13 @@ typedef struct cmts_init_options_t
 
 } cmts_init_options_t;
 
+typedef struct cmts_parallel_for_options_t
+{
+	uint32_t	begin;
+	uint32_t	end;
+	uint8_t		priority;
+} cmts_parallel_for_options_t;
+
 #define CMTS_MAX_TASKS (1U << 24U)
 #define CMTS_NIL_HANDLE UINT32_MAX
 
@@ -203,7 +210,7 @@ typedef struct cmts_dispatch_options_t
 	/// <summary>
 	/// Specifies the type of the handle assigned to sync_object.
 	/// </summary>
-	cmts_synchronization_type_t synchronization_type;
+	cmts_synchronization_type_t sync_type;
 
 	/// <summary>
 	/// The scheduling priority of the task to submit. This value must not exceed CMTS_MAX_PRIORITY.
@@ -501,17 +508,11 @@ extern "C" {
 	/// </returns>
 	uint32_t CMTS_CALLING_CONVENTION cmts_core_count();
 
-	/// <summary>
-	/// Dispatches a group of tasks and then waits for them to complete. Effectively equivalent to:
-	/// for (uint32_t i = begin; i < end; ++i)
-	/// {
-	/// }
-	/// </summary>
-	/// <param name="begin"></param>
-	/// <param name="end"></param>
-	/// <param name="body"></param>
-	/// <returns></returns>
-	void CMTS_CALLING_CONVENTION cmts_parallel_for(uint32_t begin, uint32_t end, cmts_function_pointer_t body);
+	/// <summary>Dispatches a group of tasks and then waits for them to complete.</summary>
+	/// <param name="begin">The initial value of the internal for loop counter.</param>
+	/// <param name="end">The initial value of the internal for loop counter.</param>
+	/// <param name="body">The task to execute in the for loop body. The current index of the loop counter is passed to the task, casted to void*.</param>
+	void CMTS_CALLING_CONVENTION cmts_parallel_for(cmts_function_pointer_t body, const cmts_parallel_for_options_t* options);
 
 #ifdef __cplusplus
 }
