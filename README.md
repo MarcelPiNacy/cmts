@@ -1,4 +1,6 @@
 # cmts
+## Warning
+The library is currently work in progress. You should only use code from the release branch, once it is created.
 ## About
 cmts is a C++14 header-only library with a C-compatible API that implements a scheduler for cooperative multitasking.
 ## Usage

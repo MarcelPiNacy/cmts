@@ -295,7 +295,6 @@ CMTS_INLINE_NEVER static CMTS_CALLING_CONVENTION void conditionally_exit_thread(
 	CMTS_UNLIKELY_IF(!should_continue.load(std::memory_order_acquire))
 	{
 		ExitThread(0);
-		CMTS_UNREACHABLE;
 	}
 }
 
@@ -401,6 +400,7 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_wait_list(
 	{
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
 			conditionally_exit_thread();
+
 		c = ctrl.load(std::memory_order_acquire);
 		CMTS_UNLIKELY_IF(c.head == CMTS_NIL_HANDLE)
 			return CMTS_NIL_HANDLE;
@@ -436,6 +436,7 @@ CMTS_INLINE_ALWAYS static bool CMTS_CALLING_CONVENTION append_wait_list(T& state
 	{
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
 			conditionally_exit_thread();
+
 		CMTS_UNLIKELY_IF(state.is_done())
 			return false;
 		CMTS_LIKELY_IF(try_append_wait_list(state.wait_list, task_index))
@@ -485,7 +486,9 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 				continue;
 
 			CMTS_LIKELY_IF(b)
+			{
 				local_index = adjust_queue_index(q.tail.fetch_add(1, std::memory_order_acquire));
+			}
 
 			std::atomic<uint_fast32_t>& e = q.values[local_index];
 
@@ -540,6 +543,7 @@ static void WINAPI fiber_main(void* param) CMTS_NOTHROW
 	{
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
 			conditionally_exit_thread();
+
 		CMTS_ASSERT(current_task < CMTS_MAX_TASKS);
 		CMTS_ASSERT(current_task < max_tasks);
 		fiber_state& state = fiber_pool_ptr[current_task];
@@ -561,6 +565,7 @@ static DWORD WINAPI thread_main(void* param) CMTS_NOTHROW
 	{
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
 			conditionally_exit_thread();
+
 		current_task = fetch_from_queue();
 		CMTS_ASSERT(current_task < CMTS_MAX_TASKS);
 		CMTS_ASSERT(current_task < max_tasks);
@@ -778,9 +783,11 @@ extern "C"
 		const DWORD r = WaitForMultipleObjects(thread_count, threads_ptr, true, INFINITE);
 		CMTS_UNLIKELY_IF(r != WAIT_OBJECT_0)
 			return false;
+
 		for (uint_fast32_t i = 0; i != thread_count; ++i)
 			CMTS_UNLIKELY_IF(CloseHandle(threads_ptr[i]))
 				return false;
+
 		if (deallocate == nullptr)
 		{
 			CMTS_UNLIKELY_IF(!VirtualFree(threads_ptr, 0, MEM_RELEASE))
@@ -792,8 +799,10 @@ extern "C"
 			const size_t buffer_size = (thread_count * sizeof(HANDLE)) + (queue_buffer_size * CMTS_MAX_PRIORITY) + (max_tasks * (sizeof(fiber_state) + sizeof(fence_state) + sizeof(counter_state)));
 			deallocate(threads_ptr, buffer_size);
 		}
+
 		CMTS_UNLIKELY_IF(!ConvertFiberToThread())
 			return false;
+
 		threads_ptr = nullptr;
 		return true;
 	}
