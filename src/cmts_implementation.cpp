@@ -72,7 +72,7 @@
 #ifdef CMTS_DEBUG
 #define CMTS_UNREACHABLE __builtin_trap()
 #define CMTS_INLINE_ALWAYS
-#define CMTS_INLINE_NEVER
+#define CMTS_INLINE_NEVER __attribute__((noinline))
 #else
 #define CMTS_UNREACHABLE __builtin_unreachable()
 #define CMTS_INLINE_ALWAYS __attribute__((always_inline))
@@ -101,7 +101,7 @@
 #ifdef CMTS_DEBUG
 #define CMTS_UNREACHABLE CMTS_TERMINATE; CMTS_ASSUME(0)
 #define CMTS_INLINE_ALWAYS
-#define CMTS_INLINE_NEVER
+#define CMTS_INLINE_NEVER __declspec(noinline)
 #else
 #define CMTS_UNREACHABLE CMTS_ASSUME(0)
 #define CMTS_INLINE_ALWAYS __forceinline
@@ -293,9 +293,7 @@ alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<bool> should_continue;
 CMTS_INLINE_NEVER static CMTS_CALLING_CONVENTION void conditionally_exit_thread() CMTS_NOTHROW
 {
 	CMTS_UNLIKELY_IF(!should_continue.load(std::memory_order_acquire))
-	{
 		ExitThread(0);
-	}
 }
 
 CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION adjust_queue_index(uint_fast32_t index) CMTS_NOTHROW
@@ -308,7 +306,7 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION adjust_queue_ind
 
 struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue_state
 {
-	static constexpr auto ENTRY_SIZE = sizeof(std::atomic<uint_fast32_t>);
+	static constexpr size_t ENTRY_SIZE = sizeof(std::atomic<uint_fast32_t>);
 
 	alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) std::atomic<uint_fast32_t> head;
 	alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) std::atomic<uint_fast32_t> tail;
@@ -558,20 +556,26 @@ static DWORD WINAPI thread_main(void* param) CMTS_NOTHROW
 {
 	processor_index = (uint_fast32_t)(size_t)param;
 	root_fiber = ConvertThreadToFiberEx(nullptr, FIBER_FLAG_FLOAT_SWITCH);
+	
+	CMTS_ASSERT(root_fiber != nullptr);
+
 	memset(local_reserved_indices, 0xff, sizeof(local_reserved_indices));
 
-	CMTS_ASSERT(root_fiber != nullptr);
 	while (true)
 	{
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
 			conditionally_exit_thread();
 
 		current_task = fetch_from_queue();
+
 		CMTS_ASSERT(current_task < CMTS_MAX_TASKS);
 		CMTS_ASSERT(current_task < max_tasks);
+
 		fiber_state& f = fiber_pool_ptr[current_task];
+
 		CMTS_ASSERT(f.function != nullptr);
 		CMTS_ASSERT(f.handle != nullptr);
+
 		SwitchToFiber(f.handle);
 		if (f.function != nullptr)
 		{
@@ -834,9 +838,9 @@ extern "C"
 			deallocate(threads_ptr, buffer_size);
 		}
 
+		threads_ptr = nullptr;
 		CMTS_UNLIKELY_IF(!ConvertFiberToThread())
 			return false;
-		threads_ptr = nullptr;
 		return true;
 	}
 

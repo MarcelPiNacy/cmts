@@ -510,7 +510,7 @@ extern "C" {
 
 	/// <summary>Dispatches a group of tasks and then waits for them to complete.</summary>
 	/// <param name="begin">The initial value of the internal for loop counter.</param>
-	/// <param name="end">The initial value of the internal for loop counter.</param>
+	/// <param name="end">The limit value of the internal for loop counter.</param>
 	/// <param name="body">The task to execute in the for loop body. The current index of the loop counter is passed to the task, casted to void*.</param>
 	void CMTS_CALLING_CONVENTION cmts_parallel_for(cmts_function_pointer_t body, const cmts_parallel_for_options_t* options);
 
