@@ -433,6 +433,7 @@ alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	ta
 alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	fence_pool_ctrl;
 alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	counter_pool_ctrl;
 alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static cmts_shared_queue_state			queues[CMTS_MAX_PRIORITY];
+alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) std::atomic<uint32_t>					scheduler_generation;
 
 CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_wait_list(std::atomic<wait_list_control_block>& ctrl) CMTS_NOTHROW
 {
@@ -518,12 +519,19 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION submit_to_queue(const uin
 		CMTS_LIKELY_IF(e.compare_exchange_weak(empty, task_index, std::memory_order_release, std::memory_order_relaxed))
 			break;
 	}
+
+#ifdef CMTS_CONSERVATIVE_SCHEDULER
+	(void)scheduler_generation.fetch_add(1, std::memory_order_acquire);
+	WakeByAddressSingle(&scheduler_generation);
+#endif
 }
 
 CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue() CMTS_NOTHROW
 {
 	while (true)
 	{
+		uint32_t sg = scheduler_generation.load(std::memory_order_relaxed);
+
 		for (uint_fast32_t i = 0; i != CMTS_MAX_PRIORITY; ++i)
 		{
 			CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
@@ -531,6 +539,9 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 
 			cmts_shared_queue_state& q = queues[i];
 			uint_fast32_t& local_index = local_reserved_indices[i];
+
+			CMTS_LIKELY_IF(non_atomic_load(q.head) == non_atomic_load(q.tail))
+				continue;
 
 			CMTS_LIKELY_IF(local_index == UINT32_MAX)
 				local_index = q.tail.fetch_add(1, std::memory_order_acquire);
@@ -553,7 +564,10 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 				CMTS_YIELD_CPU;
 			}
 		}
-		CMTS_YIELD_CPU;
+
+#ifdef CMTS_CONSERVATIVE_SCHEDULER
+		WaitOnAddress(&scheduler_generation, &sg, sizeof(scheduler_generation), INFINITE);
+#endif
 	}
 }
 
@@ -829,6 +843,11 @@ extern "C"
 	{
 		CMTS_ASSERT_IS_INITIALIZED;
 		should_continue.store(false, std::memory_order_release);
+
+#ifdef CMTS_CONSERVATIVE_SCHEDULER
+		(void)scheduler_generation.fetch_add(1, std::memory_order_acquire);
+		WakeByAddressAll(&scheduler_generation);
+#endif
 	}
 
 	cmts_result_t CMTS_CALLING_CONVENTION cmts_finalize(cmts_deallocate_function_pointer_t deallocate)
