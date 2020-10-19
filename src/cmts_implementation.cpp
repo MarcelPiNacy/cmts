@@ -521,7 +521,7 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION submit_to_queue(const uin
 	}
 
 #ifdef CMTS_CONSERVATIVE_SCHEDULER
-	(void)scheduler_generation.fetch_add(1, std::memory_order_acquire);
+	(void)scheduler_generation.fetch_add(1, std::memory_order_release);
 	WakeByAddressSingle(&scheduler_generation);
 #endif
 }
@@ -530,7 +530,7 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 {
 	while (true)
 	{
-		uint32_t sg = scheduler_generation.load(std::memory_order_relaxed);
+		uint32_t sg = scheduler_generation.load(std::memory_order_acquire);
 
 		for (uint_fast32_t i = 0; i != CMTS_MAX_PRIORITY; ++i)
 		{
@@ -845,7 +845,7 @@ extern "C"
 		should_continue.store(false, std::memory_order_release);
 
 #ifdef CMTS_CONSERVATIVE_SCHEDULER
-		(void)scheduler_generation.fetch_add(1, std::memory_order_acquire);
+		(void)scheduler_generation.fetch_add(1, std::memory_order_release);
 		WakeByAddressAll(&scheduler_generation);
 #endif
 	}
