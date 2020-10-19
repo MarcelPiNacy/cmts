@@ -30,35 +30,47 @@
 #include <stdint.h>
 
 #ifndef CMTS_NODISCARD
-#if defined(__cplusplus) && defined(__has_attribute)
-#if __has_attribute(nodiscard)
-#define CMTS_NODISCARD [[nodiscard]]
-#else
-#define CMTS_NODISCARD
+	#if defined(__cplusplus)
+		#if __has_cpp_attribute(nodiscard)
+		#define CMTS_NODISCARD [[nodiscard]]
+		#else
+		#define CMTS_NODISCARD
+		#endif
+	#else
+		#define CMTS_NODISCARD
+	#endif
 #endif
-#else
-#define CMTS_NODISCARD
-#endif
+
+#ifndef CMTS_NORETURN
+	#if defined(__cplusplus)
+		#if __has_cpp_attribute(noreturn)
+		#define CMTS_NORETURN [[noreturn]]
+		#else
+		#define CMTS_NORETURN
+		#endif
+	#else
+		#define CMTS_NORETURN
+	#endif
 #endif
 
 #ifndef CMTS_MAX_PRIORITY
-#define CMTS_MAX_PRIORITY 3
+	#define CMTS_MAX_PRIORITY 3
 #elif CMTS_MAX_PRIORITY > 256
-#error "Error, CMTS_MAX_PRIORITY must not exceed 256"
+	#error "Error, CMTS_MAX_PRIORITY must not exceed 256"
 #endif
 
 #ifndef CMTS_EXPECTED_CACHE_LINE_SIZE
-#define CMTS_EXPECTED_CACHE_LINE_SIZE 64
+	#define CMTS_EXPECTED_CACHE_LINE_SIZE 64
 #endif
 
 #if !defined(CMTS_NOTHROW) && defined(__cplusplus)
-#define CMTS_NOTHROW noexcept
+	#define CMTS_NOTHROW noexcept
 #else
-#define CMTS_NOTHROW
+	#define CMTS_NOTHROW
 #endif
 
 #ifndef CMTS_CALLING_CONVENTION
-#define CMTS_CALLING_CONVENTION
+	#define CMTS_CALLING_CONVENTION
 #endif
 
 #ifdef __cplusplus
@@ -67,10 +79,37 @@ typedef bool cmts_boolean_t;
 typedef _Bool cmts_boolean_t;
 #endif
 
+typedef enum cmts_const_t
+{
+	CMTS_MAX_TASKS = (1U << 24U),
+	CMTS_NIL_HANDLE = -1
+} cmts_const_t;
+
+typedef enum cmts_result_t
+{
+	CMTS_SUCCESS = 0,
+	CMTS_SYNC_OBJECT_EXPIRED = 1,
+
+	CMTS_ERROR_INVALID_PARAMETER = -1,
+	CMTS_ERROR_ALLOCATION_FAILURE = -2,
+	CMTS_ERROR_DEALLOCATION_FAILURE = -3,
+	CMTS_ERROR_THREAD_CREATION_FAILURE = -4,
+	CMTS_ERROR_THREAD_AFFINITY_FAILURE = -5,
+	CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD = -6,
+	CMTS_ERROR_FAILED_TO_SUSPEND_WORKER_THREAD = -7,
+	CMTS_ERROR_FAILED_TO_TERMINATE_WORKER_THREAD = -8,
+	CMTS_ERROR_FAILED_TO_AWAIT_WORKER_THREADS = -9,
+	CMTS_DISPATCH_ERROR_TASK_POOL_LIMIT_REACHED = -10,
+	CMTS_DISPATCH_ERROR_EXPIRED_SYNC_OBJECT = -11,
+	CMTS_ERROR_INVALID_SYNC_OBJECT_HANDLE = -12,
+	CMTS_ERROR_EXPIRED_SYNC_OBJECT = -14,
+
+} cmts_result_t;
+
 /// <summary>
 /// The function pointer type of a task entry point.
 /// </summary>
-typedef void(*cmts_function_pointer_t)(void*);
+typedef void(*cmts_function_pointer_t)(void* param);
 
 /// <summary>
 /// A pointer to a memory allocation funcntion used during library initialization.
@@ -90,7 +129,7 @@ typedef void*(*cmts_allocate_function_pointer_t)(size_t size);
 /// The size of the memory block ptr points to.
 /// </param>
 /// </summary>
-typedef void(*cmts_deallocate_function_pointer_t)(void* memory, size_t size);
+typedef cmts_boolean_t(*cmts_deallocate_function_pointer_t)(void* memory, size_t size);
 
 /// <summary>
 /// A handle to either a fence or a counter object.
@@ -170,27 +209,12 @@ typedef struct cmts_parallel_for_options_t
 	uint8_t		priority;
 } cmts_parallel_for_options_t;
 
-#define CMTS_MAX_TASKS (1U << 24U)
-#define CMTS_NIL_HANDLE UINT32_MAX
-
 typedef enum cmts_synchronization_type_t
 {
-	/// <summary>
-	/// Specifies that a task has no associated synchronization object.
-	/// </summary>
-	CMTS_SYNCHRONIZATION_TYPE_NONE,
-
-	/// <summary>
-	/// Specifies that a task has a fence associated.
-	/// </summary>
-	CMTS_SYNCHRONIZATION_TYPE_FENCE,
-
-	/// <summary>
-	/// Specifies that a task has a counter associated.
-	/// </summary>
-	CMTS_SYNCHRONIZATION_TYPE_COUNTER,
-
-	CMTS_SYNCHRONIZATION_TYPE_MAX_ENUM,
+	CMTS_SYNC_TYPE_NONE,
+	CMTS_SYNC_TYPE_FENCE,
+	CMTS_SYNC_TYPE_COUNTER,
+	CMTS_SYNC_TYPE_MAX_ENUM,
 
 } cmts_synchronization_type_t;
 
@@ -203,7 +227,7 @@ typedef struct cmts_dispatch_options_t
 
 	/// <summary>
 	/// Either a fence or a counter handle.
-	/// Ignored if synchronization_type is set to CMTS_SYNCHRONIZATION_TYPE_NONE.
+	/// Ignored if synchronization_type is set to CMTS_SYNC_TYPE_NONE.
 	/// </summary>
 	cmts_handle_t sync_object;
 
@@ -220,298 +244,262 @@ typedef struct cmts_dispatch_options_t
 } cmts_dispatch_options_t;
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 	/// <summary>
-	/// Initializes the internal state of the library.
+	/// Initializes the CMTS scheduler.
 	/// </summary>
 	/// <param name="options">
 	/// Either nullptr or a valid pointer to a cmts_init_options_t structure.
 	/// </param>
 	/// <returns>
-	/// True the library was successfully initialized, false otherwise.
+	/// CMTS_SUCCESS or an error code.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_init(const cmts_init_options_t* options);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_init(const cmts_init_options_t* options);
 
 	/// <summary>
 	/// Halts all worker threads.
 	/// </summary>
 	/// <returns>
-	/// True if the operation succeeded, false otherwise.
+	/// CMTS_SUCCESS or an error code.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_break();
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_break();
 
 	/// <summary>
 	/// Resumes all worker threads.
 	/// </summary>
 	/// <returns>
-	/// True if the operation succeeded, false otherwise.
+	/// CMTS_SUCCESS or an error code.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_continue();
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_continue();
 
 	/// <summary>
-	/// Signals to the worker threads to quit once the current task yields or exits.
+	/// Signals to all worker threads to exit once their current task yields or finishes.
 	/// </summary>
 	void CMTS_CALLING_CONVENTION cmts_signal_finalize();
 
 	/// <summary>
-	/// Waits for all worker threads to exit and releases the resources used by the library.
+	/// Waits for all worker threads to finish and releases the resources owned by the scheduler.
 	/// </summary>
 	/// <param name="deallocate">
-	/// Specifies the memory deallocation function. If set to nullptr, the operating system's memory allocator is used (VirtualFree on Windows, munmap on Linux)
+	/// Either nullptr or a pointer to a memory deallocation function. If nullptr is passed, the operating system's memory allocator is used (VirtualFree on Windows, munmap on POSIX).
 	/// </param>
 	/// <returns>
-	/// True if the operation succeeded, false otherwise.
+	/// CMTS_SUCCESS or an error code.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_finalize(cmts_deallocate_function_pointer_t deallocate);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_finalize(cmts_deallocate_function_pointer_t deallocate);
 
 	/// <summary>
-	/// Forcibly terminates all worker threads and releases the resources used by the library.
+	/// Forcibly terminates all worker threads and releases the resources owned by the scheduler.
 	/// </summary>
 	/// <param name="deallocate">
-	/// Specifies the memory deallocation function.
+	/// Either nullptr or a pointer to a memory deallocation function. If nullptr is passed, the operating system's memory allocator is used (VirtualFree on Windows, munmap on POSIX).
 	/// </param>
 	/// <returns>
-	/// True if the operation succeeded, false otherwise.
+	/// CMTS_SUCCESS or an error code.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_terminate(cmts_deallocate_function_pointer_t deallocate);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_terminate(cmts_deallocate_function_pointer_t deallocate);
 
-	/// <summary>
-	/// Returns whether the calling function is being executed inside of a task.
-	/// </summary>
 	/// <returns>
-	/// True if the calling function is being executed inside of a task, false otherwise.
+	/// Non-zero if the caller is begin executed as a task.
 	/// </returns>
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_task();
 
-	/// <summary>
-	/// Returns whether the library is initialized
-	/// </summary>
 	/// <returns>
-	/// True if the library is initialized, false otherwise.
+	/// Non-zero if the CMTS scheduler is initialized.
 	/// </returns>
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_initialized();
 
-	/// <summary>
-	/// Returns whether the scheduler is running
-	/// </summary>
 	/// <returns>
-	/// True if the scheduler is running, false otherwise.
+	/// Non-zero if the CMTS scheduler is running and cmts_signal_finalize() has not yet been called.
 	/// </returns>
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_live();
 
-	/// <summary>
-	/// Returns whether the scheduler is running
-	/// </summary>
 	/// <returns>
-	/// True if the scheduler is running, false otherwise.
+	/// Non-zero if the worker threads are paused.
 	/// </returns>
 	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_paused();
 
 	/// <summary>
-	/// Submits a task to the cmts scheduler.
+	/// Submits a task to the scheduler.
 	/// </summary>
 	/// <param name="entry_point">
-	/// A function pointer to be used as the task entry point.
+	/// A function pointer used as the entry point of the task.
 	/// </param>
 	/// <param name="options">
-	/// Either nullptr or a valid pointer to a cmts_dispatch_options_t structure.
+	/// Either nullptr or a valid pointer to a cmts_dispatch_options_t structure. If nullptr is passed, then nullptr is also passed to the task, no synchronization object (fence or counter) is attached and the task priority is set to 0, indicating maximum priority.
 	/// </param>
 	/// <returns>
-	/// True if the operation succeeded, false if the internal task pool is at maximum capacity.
+	/// CMTS_SUCCESS or an error code.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_dispatch(cmts_function_pointer_t entry_point, const cmts_dispatch_options_t* options);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_dispatch(cmts_function_pointer_t entry_point, const cmts_dispatch_options_t* options);
 
 	/// <summary>
-	/// Suspends execution of the current task.
+	/// Halts execution of the current task and pushes it to the end of the corresponding queue.
 	/// </summary>
 	void CMTS_CALLING_CONVENTION cmts_yield();
 
 	/// <summary>
 	/// Finishes execution of the current task.
-	/// WARNING: This function does NOT call the destructors of stack-allocated objects.
+	/// Warning: calling this function does NOT call the destructors of stack-allocated objects.
 	/// </summary>
-	void CMTS_CALLING_CONVENTION cmts_exit();
+	CMTS_NORETURN void CMTS_CALLING_CONVENTION cmts_exit();
 
 	/// <summary>
-	/// Allocates a fence object.
+	/// Acquires ownership of a fence object.
 	/// </summary>
 	/// <returns>
-	/// A valid handle to a fence object if the operation succeeded, CMTS_NIL_HANDLE otherwise.
+	/// Either CMTS_NIL_HANDLE or a valid fence handle.
 	/// </returns>
 	CMTS_NODISCARD cmts_fence_t CMTS_CALLING_CONVENTION cmts_new_fence();
 
-	/// <summary>
-	/// Determines whether the specified handle references a previously allocated fence.
-	/// </summary>
 	/// <param name="fence">
 	/// The fence handle to test.
 	/// </param>
 	/// <returns>
-	/// True if the handle is valid, false otherwise.
+	/// CMTS_ERROR_INVALID_SYNC_OBJECT_HANDLE if the handle is invalid. Otherwise, returns a boolean value casted to cmts_result_t indicating whether the fence has expired.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_fence_valid(cmts_fence_t fence);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_is_fence_valid(cmts_fence_t fence);
 
 	/// <summary>
-	/// Sets the flag of the fence and resumes execution of any waiting tasks.
+	/// Signals the fence, submiting all waiting tasks back to their corresponding queues.
 	/// </summary>
 	/// <param name="fence">
-	/// The fence handle to signal.
-	/// </param>
-	void CMTS_CALLING_CONVENTION cmts_signal_fence(cmts_fence_t fence);
-
-	/// <summary>
-	/// Waits for the fence to be signaled.
-	/// </summary>
-	/// <param name="fence">
-	/// The fence handle to wait on.
-	/// </param>
-	void CMTS_CALLING_CONVENTION cmts_await_fence(cmts_fence_t fence);
-
-	/// <summary>
-	/// Waits for the fence to be signaled and then deletes it.
-	/// </summary>
-	/// <param name="fence">
-	/// The fence handle to wait on.
-	/// </param>
-	void CMTS_CALLING_CONVENTION cmts_await_fence_and_delete(cmts_fence_t fence);
-
-	/// <summary>
-	/// Deletes the specified fence.
-	/// </summary>
-	/// <param name="fence">
-	/// The fence handle to delete.
-	/// </param>
-	void CMTS_CALLING_CONVENTION cmts_delete_fence(cmts_fence_t fence);
-
-	/// <summary>
-	/// Allocates a counter object.
-	/// </summary>
-	/// <param name="start_value">
-	/// The initial value stored internally by the counter.
+	/// A handle to the fence to signal.
 	/// </param>
 	/// <returns>
-	/// A valid handle to a counter object if the operation succeeded, CMTS_NIL_HANDLE otherwise.
+	/// CMTS_SUCCESS if the operation has succeeded, CMTS_ERROR_EXPIRED_SYNC_OBJECT if the fence has already expired.
+	/// </returns>
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_signal_fence(cmts_fence_t fence);
+
+	/// <summary>
+	/// Halts execution of the current task until the fence is signaled.
+	/// </summary>
+	/// <param name="fence">
+	/// A valid handle to a fence object.
+	/// </param>
+	/// <returns>
+	/// CMTS_SUCCESS if the operation has succeeded, CMTS_SYNC_OBJECT_EXPIRED if the fence expired while attepting to add the current task to its wait list or CMTS_ERROR_EXPIRED_SYNC_OBJECT if the fence expired before that.
+	/// </returns>
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_fence(cmts_fence_t fence);
+
+	/// <summary>
+	/// Halts execution of the current task until the fence is signaled. Then it releases ownership of the fence object.
+	/// </summary>
+	/// <param name="fence">
+	/// A valid handle to a fence object.
+	/// </param>
+	/// <returns>
+	/// CMTS_SUCCESS if the operation has succeeded, CMTS_SYNC_OBJECT_EXPIRED if the fence expired while attepting to add the current task to its wait list or CMTS_ERROR_EXPIRED_SYNC_OBJECT if the fence expired before that.
+	/// </returns>
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_fence_and_delete(cmts_fence_t fence);
+
+	/// <summary>
+	/// Releases ownership of the specified fence object.
+	/// </summary>
+	/// <param name="fence">
+	/// A valid handle to a fence object.
+	/// </param>
+	/// <returns>
+	/// CMTS_SUCCESS if the operation has succeeded, CMTS_ERROR_EXPIRED_SYNC_OBJECT if the handle has already expired.
+	/// </returns>
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_delete_fence(cmts_fence_t fence);
+
+	/// <summary>
+	/// Acquires ownership of a counter object.
+	/// </summary>
+	/// <returns>
+	/// Either CMTS_NIL_HANDLE or a valid counter handle.
 	/// </returns>
 	CMTS_NODISCARD cmts_counter_t CMTS_CALLING_CONVENTION cmts_new_counter(uint32_t start_value);
 
-	/// <summary>
-	/// Determines whether the specified handle references a previously allocated counter.
-	/// </summary>
 	/// <param name="counter">
 	/// The counter handle to test.
 	/// </param>
 	/// <returns>
-	/// True if the handle is valid, false otherwise.
+	/// CMTS_ERROR_INVALID_SYNC_OBJECT_HANDLE if the handle is invalid. Otherwise, returns a boolean value casted to cmts_result_t indicating whether the counter has expired.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_is_counter_valid(cmts_counter_t counter);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_is_counter_valid(cmts_counter_t counter);
 
 	/// <summary>
-	/// Waits for the counter's value to reach zero.
+	/// Halts execution of the current task until the counter is signaled.
 	/// </summary>
 	/// <param name="counter">
-	/// The counter handle to wait on.
-	/// </param>
-	void CMTS_CALLING_CONVENTION cmts_await_counter(cmts_counter_t counter);
-
-	/// <summary>
-	/// Waits for the counter's value to reach zero and then deletes it.
-	/// </summary>
-	/// <param name="counter">
-	/// The counter handle to wait on.
-	/// </param>
-	void CMTS_CALLING_CONVENTION cmts_await_counter_and_delete(cmts_counter_t counter);
-
-	/// <summary>
-	/// Deletes the specified counter.
-	/// </summary>
-	/// <param name="counter">
-	/// The counter handle to delete.
-	/// </param>
-	void CMTS_CALLING_CONVENTION cmts_delete_counter(cmts_counter_t counter);
-
-	/// <summary>
-	/// Submits a task to the cmts scheduler.
-	/// </summary>
-	/// <param name="entry_point">
-	/// A function pointer to be used as the task entry point.
-	/// </param>
-	/// <param name="param">
-	/// The parameter to be passed to the task entry point.
-	/// </param>
-	/// <param name="priority">
-	/// The scheduling priority of the task.
-	/// </param>
-	/// <param name="fence">
-	/// A handle to the fence to signal once the task completes.
+	/// A valid handle to a counter object.
 	/// </param>
 	/// <returns>
-	/// True if the operation succeeded, false if the internal task pool is at maximum capacity.
+	/// CMTS_SUCCESS if the operation has succeeded, CMTS_SYNC_OBJECT_EXPIRED if the counter expired while attepting to add the current task to its wait list or CMTS_ERROR_EXPIRED_SYNC_OBJECT if the counter expired before that.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_dispatch_with_fence(cmts_function_pointer_t entry_point, void* param, uint8_t priority, cmts_fence_t fence);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_counter(cmts_counter_t counter);
 
 	/// <summary>
-	/// Submits a task to the cmts scheduler.
+	/// Halts execution of the current task until the counter is signaled. Then it releases ownership of the counter object.
 	/// </summary>
-	/// <param name="entry_point">
-	/// A function pointer to be used as the task entry point.
-	/// </param>
-	/// <param name="param">
-	/// The parameter to be passed to the task entry point.
-	/// </param>
-	/// <param name="priority">
-	/// The scheduling priority of the task.
-	/// </param>
 	/// <param name="counter">
-	/// A handle to the counter to decrement once the task completes.
+	/// A valid handle to a counter object.
 	/// </param>
 	/// <returns>
-	/// True if the operation succeeded, false if the internal task pool is at maximum capacity.
+	/// CMTS_SUCCESS if the operation has succeeded, CMTS_SYNC_OBJECT_EXPIRED if the counter expired while attepting to add the current task to its wait list or CMTS_ERROR_EXPIRED_SYNC_OBJECT if the counter expired before that.
 	/// </returns>
-	cmts_boolean_t CMTS_CALLING_CONVENTION cmts_dispatch_with_counter(cmts_function_pointer_t entry_point, void* param, uint8_t priority, cmts_counter_t counter);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_counter_and_delete(cmts_counter_t counter);
+
+	/// <summary>
+	/// Releases ownership of the specified counter object.
+	/// </summary>
+	/// <param name="counter">
+	/// A valid handle to a counter object.
+	/// </param>
+	/// <returns>
+	/// CMTS_SUCCESS if the operation has succeeded, CMTS_ERROR_EXPIRED_SYNC_OBJECT if the handle has already expired.
+	/// </returns>
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_delete_counter(cmts_counter_t counter);
 
 	/// <returns>
-	/// Returns the entry point of the current task.
+	/// The function pointer used as the entry point of the current task.
 	/// </returns>
 	cmts_function_pointer_t CMTS_CALLING_CONVENTION cmts_task_entry_point();
 
 	/// <returns>
-	/// Returns the parameter of the current task.
+	/// The parameter passed to the entry point of the current task.
 	/// </returns>
 	void* CMTS_CALLING_CONVENTION cmts_task_parameter();
 
 	/// <returns>
-	/// Returns the id of the current task.
+	/// The ID of the current task.
 	/// </returns>
 	uint64_t CMTS_CALLING_CONVENTION cmts_task_id();
 
 	/// <returns>
-	/// Returns the priority of the current task.
+	/// A value ranging from 0 (highest) to CMTS_MAX_PRIORITY (lowest), indicating the priority of the current task.
 	/// </returns>
 	uint8_t CMTS_CALLING_CONVENTION cmts_task_priority();
 
 	/// <returns>
 	/// The index of the current worker thread.
-	/// Equivalent to the current CPU core index if options.use_affinity was true when passed to cmts_init.
 	/// </returns>
-	uint32_t CMTS_CALLING_CONVENTION cmts_thread_index();
+	uint32_t CMTS_CALLING_CONVENTION cmts_thread_id();
 
 	/// <returns>
-	/// The number of worker threads.
+	/// The number of worker threads used by CMTS.
 	/// </returns>
 	uint32_t CMTS_CALLING_CONVENTION cmts_thread_count();
 
 	/// <returns>
-	/// The number of CPU cores of the current processor.
-	/// This function does not require the library to be initialized.
+	/// The number of cores of the current CPU.
 	/// </returns>
-	uint32_t CMTS_CALLING_CONVENTION cmts_core_count();
+	uint32_t CMTS_CALLING_CONVENTION cmts_cpu_core_count();
 
-	/// <summary>Dispatches a group of tasks and then waits for them to complete.</summary>
-	/// <param name="begin">The initial value of the internal for loop counter.</param>
-	/// <param name="end">The limit value of the internal for loop counter.</param>
-	/// <param name="body">The task to execute in the for loop body. The current index of the loop counter is passed to the task, casted to void*.</param>
+	/// <summary>
+	/// Executes a group of tasks, emulating a parallel for-loop.
+	/// </summary>
+	/// <param name="body">
+	/// The body of the for-loop.
+	/// </param>
+	/// <param name="options">
+	/// A valid pointer to a cmts_parallel_for_options_t structure.
+	/// </param>
 	void CMTS_CALLING_CONVENTION cmts_parallel_for(cmts_function_pointer_t body, const cmts_parallel_for_options_t* options);
 
 #ifdef __cplusplus
@@ -521,5 +509,5 @@ extern "C" {
 
 
 #ifdef CMTS_IMPLEMENTATION
-#include "src/cmts_implementation.cpp"
+#include "source/cmts_implementation.cpp"
 #endif
