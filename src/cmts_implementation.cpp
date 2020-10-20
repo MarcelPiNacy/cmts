@@ -998,7 +998,10 @@ extern "C"
 		CMTS_ASSERT(index < CMTS_MAX_TASKS);
 		CMTS_ASSERT(index < max_tasks);
 		fence_state& e = fence_pool_ptr[index];
-		return (cmts_fence_t)index | ((cmts_fence_t)non_atomic_load(e.ctrl).generation << 32);
+		const fence_state::control_block c = non_atomic_load(e.ctrl);
+		const fence_state::control_block nc = { true, c.generation + 1 };
+		non_atomic_store(e.ctrl, nc);
+		return (cmts_fence_t)index | ((cmts_fence_t)nc.generation << 32);
 	}
 
 	cmts_result_t CMTS_CALLING_CONVENTION cmts_is_fence_valid(cmts_fence_t fence)
