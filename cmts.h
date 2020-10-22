@@ -59,10 +59,10 @@
 #error "Error, CMTS_MAX_PRIORITY must not exceed 256"
 #endif
 
-#ifndef CMTS_EXPECTED_CACHE_LINE_SIZE
+#ifndef CMTS_FALSE_SHARING_THRESHOLD
 #ifdef __cplusplus
 #if __cplusplus < 201703L
-#define CMTS_EXPECTED_CACHE_LINE_SIZE 64
+#define CMTS_FALSE_SHARING_THRESHOLD 64
 #else
 #if __cplusplus < 201703L
 #define CMTS_FALSE_SHARING_THRESHOLD 64
@@ -71,7 +71,7 @@
 #endif
 #endif
 #else
-#define CMTS_EXPECTED_CACHE_LINE_SIZE 64
+#define CMTS_FALSE_SHARING_THRESHOLD 64
 #endif
 #endif
 

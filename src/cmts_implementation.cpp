@@ -117,6 +117,7 @@
 #endif
 #endif
 
+#ifdef USING_STD_CACHE_LINE
 static constexpr bool CMTS_CALLING_CONVENTION static_is_power_of_2(size_t value) CMTS_NOTHROW
 {
 	uint8_t r = 0;
@@ -128,7 +129,6 @@ static constexpr bool CMTS_CALLING_CONVENTION static_is_power_of_2(size_t value)
 	return r == 1;
 }
 
-#ifndef USING_STD_CACHE_LINE
 static_assert(static_is_power_of_2(CMTS_FALSE_SHARING_THRESHOLD), "CMTS_FALSE_SHARING_THRESHOLD must be a power of two.");
 #endif
 
@@ -156,7 +156,7 @@ enum : uint_fast32_t
 alignas(CMTS_FALSE_SHARING_THRESHOLD) static std::atomic<bool> is_paused;
 alignas(CMTS_FALSE_SHARING_THRESHOLD) static std::atomic<bool> should_continue;
 
-#ifdef USING_STD_CACHE_LINE
+#ifndef USING_STD_CACHE_LINE
 static uint_fast8_t					queue_shift;
 static uint_fast8_t					queue_shift_mask;
 #else
