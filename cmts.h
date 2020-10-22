@@ -216,16 +216,39 @@ typedef struct cmts_init_options_t
 
 typedef struct cmts_parallel_for_options_t
 {
-	uint32_t	begin;
-	uint32_t	end;
-	uint8_t		priority;
+	/// <summary>
+	/// The initial value of the loop iteration counter.
+	/// </summary>
+	uint32_t begin;
+
+	/// <summary>
+	/// The limit value of the loop iteration counter (exclusive).
+	/// </summary>
+	uint32_t end;
+
+	/// <summary>
+	/// Specifies the priority of the parallel for-loop's tasks.
+	/// </summary>
+	uint8_t	 priority;
 } cmts_parallel_for_options_t;
 
 typedef enum cmts_synchronization_type_t
 {
+	/// <summary>
+	/// No synchronization object is attached.
+	/// </summary>
 	CMTS_SYNC_TYPE_NONE,
+
+	/// <summary>
+	/// A fence object is attached.
+	/// </summary>
 	CMTS_SYNC_TYPE_FENCE,
+
+	/// <summary>
+	/// A counter object is attached.
+	/// </summary>
 	CMTS_SYNC_TYPE_COUNTER,
+
 	CMTS_SYNC_TYPE_MAX_ENUM,
 
 } cmts_synchronization_type_t;
@@ -507,7 +530,7 @@ extern "C"
 	/// Executes a group of tasks, emulating a parallel for-loop.
 	/// </summary>
 	/// <param name="body">
-	/// The body of the for-loop.
+	/// The body of the parallel for-loop.
 	/// </param>
 	/// <param name="options">
 	/// A valid pointer to a cmts_parallel_for_options_t structure.
