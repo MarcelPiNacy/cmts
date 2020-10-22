@@ -1,8 +1,11 @@
 # cmts
-## Warning
-The library is currently work in progress. You should only use code from the release branch, once it is created.
 ## About
 cmts is a C++14 header-only library with a C-compatible API that implements a scheduler for cooperative multitasking.
+## Warning
+The library is currently work in progress. You should only use code from the release branch, once it is created.
+#### Compilers
+MSVC is currently the only supported compiler. cmts has not yet been tested on Clang and GCC, but it might work. However, it is extremely likely to cause crashes at runtime in release builds due to the stacks of the tasks being moved across threads.
+So if your compiler supports it, in release builds you should enable the equivalent of MSVC's "Enable Fiber-Safe Optimizations". In the future, a workaround will be supported via a compile-time macro.
 ## Usage
 #### Adding cmts to your project
 Like other C/C++ header-only libraries, you must explicitly include the cmts source code by defining `CMTS_IMPLEMENTATION` and then including `cmts.h`:
@@ -15,9 +18,8 @@ This step must only be done *once* per project and preferably in its own separat
 To initialize cmts you must call `cmts_init`, with either `nullptr` or a pointer to a `cmts_init_options_t` struct. If `nullptr` is passed, cmts will:
 - Launch as many worker threads as CPU cores.
 - Lock threads to cores with affinity.
-- Set the size of the task, fence and counter pools to 256 * `cmts_thread_count()`.
-- Set the worker thread stack size to 2^21.
-- Set the task stack size to 2^16.
+- Set the size of the task, fence and counter pools to 128 * `cmts_thread_count()`.
+- Set the task and worker thread stack size to 2^16.
 #### Launching tasks
 The easiest way to submit a task to the cmts scheduler is by calling `cmts_dispatch` with a valid function pointer and `nullptr`.
 However, you will not be able to wait for the task to finish
@@ -27,39 +29,42 @@ This will signal to the worker threads to exit once they are done executing thei
 If you need to forcibly terminate all cmts threads, you should call `cmts_terminate()`.
 ## Configuring
 #### At runtime
-Currently, cmts can only be configured at runtime during initialization with `cmts_init` and `cmts_init_options_t`.
+Currently, cmts can only be configured at runtime during initialization and cleanup.
 #### At compile-time
 You can configure cmts through the following macros:
 - `CMTS_DEBUG`: If defined, enables asserts and other run time checks. Enabled by default if `_DEBUG` is defined and `NDEBUG` is not.
-- `CMTS_EXPECTED_CACHE_LINE_SIZE`: Specifies the expected size of the L1 cache line size. Used to align several thread-shared data structures to minimize or eliminate false sharing.
-- `CMTS_MAX_PRIORITY`: By default, cmts only allocates 3 queues. This value must not exceed 256.
-- `CMTS_CALLING_CONVENTION`: Sets the calling convention of all library functions, with the exception of the fiber and thread entry points on Windows platforms.
-## Example code
+- `CMTS_FALSE_SHARING_THRESHOLD`: Specifies the expected size of the L1 cache line size. Used to align several thread-shared data structures to eliminate false sharing. By default, set to 64 if C++ 17 is not supported. Otherwise, the `<new>` header is included by the implementation and std::hardware_destructive_interference_size is used. (Note: some versions of MSVC incorrectly set the macro __cplusplus to the value of the C++98 standard. To fix that, use the "/Zc:__cplusplus" compiler switch.).
+- `CMTS_DISABLE_QUEUE_FALSE_SHARING_COMPENSATION`: If defined, disables false sharing compensation by the scheduler queues. By default, the head and tail indices are modified to try to access only one element every cache line.
+- `CMTS_MAX_PRIORITY`: Specifies the number of task queues, 3 by default. This value must not exceed 256.
+- `CMTS_CALLING_CONVENTION`: Sets the calling convention of all library functions, with the exception of the fiber and thread functions on Windows platforms.
+- `CMTS_CONSERVATIVE_SCHEDULER`: If defined, the worker threads sleep, instead of busy-waiting, while there are no tasks to run. Since this is implemented on Windows using WaitOnAddress/WakeByAddressSingle, either `Synchronization.lib` or `API-MS-Win-Core-Synch-l1-2-0.dll` must be linked.
+## Examples
+##### Hello World
 ```cpp
-#include <atomic>
-#define CMTS_IMPLEMENTATION
+#include <cstdio>
 #include <cmts.h>
 
-std::atomic<size_t> counter;
-
-void increment(void* index)
+void task_main(void* unused /* This will be nullptr */)
 {
-    counter.fetch_add((size_t)index, std::memory_order_release);
-}
+    printf("Worker thread #%i says:\nHello, World!", cmts_thread_index());
 
-void entry(void* unused)
-{
-    auto counter = cmts_new_counter(10);
-    for (int i = 0; i < 10; ++i)
-        cmts_dispatch_with_counter(increment, (void*)i, 0, counter);
-    cmts_await_counter_and_delete(counter);
+    // Signal to the scheduler's worker threads to quit.
     cmts_signal_finalize();
 }
 
 int main()
 {
+    // Initialize the scheduler with as many worker threads as CPU cores, and lock them with affinity.
     cmts_init(nullptr);
-    cmts_dispatch(entry, nullptr);
-    cmts_finalize();
+
+    // Launch task with task_main as its entry point.
+    cmts_dispatch(task_main, nullptr);
+
+    //Await worker threads.
+    cmts_finalize(nullptr);
 }
+
+//Include implementation. This should be in its own .CPP file:
+#define CMTS_IMPLEMENTATION
+#include <cmts.h>
 ```

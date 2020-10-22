@@ -28,7 +28,6 @@
 
 
 
-#include "cmts.h"
 #include <atomic>
 
 #if (defined(DEBUG) || defined(_DEBUG) || !defined(NDEBUG)) && !defined(CMTS_DEBUG)
@@ -111,16 +110,30 @@
 #error "cmts: UNSUPPORTED COMPILER";
 #endif
 
-#if CMTS_EXPECTED_CACHE_LINE_SIZE != 64
-static_assert(CMTS_POPCOUNT(CMTS_EXPECTED_CACHE_LINE_SIZE) == 1, "CMTS_EXPECTED_CACHE_LINE_SIZE MUST BE A POWER OF TWO");
+#ifdef __cplusplus
+#if __cplusplus >= 201703L
+#define USING_STD_CACHE_LINE
+#include <new> // => hardware_constructive_interference_size / hardware_destructive_interference_size
+#endif
 #endif
 
-#define CMTS_ROUND_TO_ALIGNMENT(K, A)	((K + ((A) - 1)) & ~(A - 1))
-#define CMTS_FLOOR_TO_ALIGNMENT(K, A)	((K) & ~(A - 1))
+static constexpr bool CMTS_CALLING_CONVENTION static_is_power_of_2(size_t value) CMTS_NOTHROW
+{
+	uint8_t r = 0;
+	while (value)
+	{
+		r += (uint8_t)(value & 1);
+		value >>= 1;
+	}
+	return r == 1;
+}
 
-#define CMTS_UINT24_MAX ((1U << 24U) - 1U)
-#define CMTS_DEFAULT_TASK_STACK_SIZE (1U << 16U)
-#define CMTS_DEFAULT_THREAD_STACK_SIZE (1U << 21U)
+#ifndef USING_STD_CACHE_LINE
+static_assert(static_is_power_of_2(CMTS_FALSE_SHARING_THRESHOLD), "CMTS_FALSE_SHARING_THRESHOLD must be a power of two.");
+#endif
+
+#define CMTS_FLOOR_TO_ALIGNMENT(value, alignment)	((value) & ~(alignment - 1))
+#define CMTS_ROUND_TO_ALIGNMENT(value, alignment)	(CMTS_FLOOR_TO_ALIGNMENT(value, alignment) & ~(alignment - 1))
 
 #ifdef CMTS_DEBUG
 #include <cassert>
@@ -134,11 +147,44 @@ static_assert(CMTS_POPCOUNT(CMTS_EXPECTED_CACHE_LINE_SIZE) == 1, "CMTS_EXPECTED_
 #define CMTS_ASSERT_IS_INITIALIZED
 #endif
 
-alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<bool> is_paused;
-alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<bool> should_continue;
+enum : uint_fast32_t
+{
+	CMTS_UINT24_MAX = (1U << 24U) - 1U,
+	CMTS_DEFAULT_TASK_STACK_SIZE = 1U << 16U,
+	CMTS_DEFAULT_THREAD_STACK_SIZE = 1U << 16U,
+};
 
+alignas(CMTS_FALSE_SHARING_THRESHOLD) static std::atomic<bool> is_paused;
+alignas(CMTS_FALSE_SHARING_THRESHOLD) static std::atomic<bool> should_continue;
+
+#ifdef USING_STD_CACHE_LINE
 static uint_fast8_t					queue_shift;
 static uint_fast8_t					queue_shift_mask;
+#else
+
+static constexpr uint_fast8_t		queue_shift = []() CMTS_NOTHROW
+{
+	switch (CMTS_FALSE_SHARING_THRESHOLD)
+	{
+#if UINTPTR_MAX == UINT32_MAX
+	case 4:		return 2:
+#endif
+	case 8:		return 3;
+	case 16:	return 4;
+	case 32:	return 5;
+	case 64:	return 6;
+	case 128:	return 7;
+	case 256:	return 8;
+	default:	return 0;
+	}
+}();
+
+static constexpr uint_fast8_t		queue_shift_mask = CMTS_FALSE_SHARING_THRESHOLD - 1;
+
+static_assert(queue_shift != 0, "std::hardware_destructive_interference_size was defined to an invalid value.");
+
+#endif
+
 static uint_fast32_t				task_stack_size;
 static uint_fast32_t				max_tasks;
 static uint_fast32_t				thread_count;
@@ -151,16 +197,8 @@ static thread_local uint_fast32_t	current_task;
 static thread_local uint_fast32_t	processor_index;
 static thread_local uint_fast32_t	local_reserved_indices[CMTS_MAX_PRIORITY];
 
-CMTS_INLINE_NEVER static CMTS_CALLING_CONVENTION void conditionally_exit_thread() CMTS_NOTHROW
-{
-	CMTS_UNLIKELY_IF(!should_continue.load(std::memory_order_acquire))
-	{
-		ExitThread(0);
-		CMTS_UNREACHABLE;
-	}
-}
-
-static void CMTS_CALLING_CONVENTION load_cache_line_info() CMTS_NOTHROW
+#ifndef USING_STD_CACHE_LINE
+CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION load_cache_line_info() CMTS_NOTHROW
 {
 	DWORD k = 0;
 
@@ -192,15 +230,25 @@ static void CMTS_CALLING_CONVENTION load_cache_line_info() CMTS_NOTHROW
 	}
 	CMTS_UNREACHABLE;
 }
+#endif
+
+CMTS_INLINE_NEVER static void CMTS_CALLING_CONVENTION conditionally_exit_thread() CMTS_NOTHROW
+{
+	CMTS_UNLIKELY_IF(!should_continue.load(std::memory_order_acquire))
+	{
+		ExitThread(0);
+		CMTS_UNREACHABLE;
+	}
+}
 
 template <typename T>
-static CMTS_INLINE_ALWAYS T CMTS_CALLING_CONVENTION non_atomic_load(const std::atomic<T>& from) CMTS_NOTHROW
+CMTS_INLINE_ALWAYS static T CMTS_CALLING_CONVENTION non_atomic_load(const std::atomic<T>& from) CMTS_NOTHROW
 {
 	return *(const T*)&from;
 }
 
 template <typename T, typename U = T>
-static CMTS_INLINE_ALWAYS void CMTS_CALLING_CONVENTION non_atomic_store(std::atomic<T>& where, U value) CMTS_NOTHROW
+CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION non_atomic_store(std::atomic<T>& where, U value) CMTS_NOTHROW
 {
 	*(T*)&where = value;
 }
@@ -218,25 +266,15 @@ struct alignas(uint64_t) pool_control_block
 		size = 0;
 		generation = 0;
 	}
-
-	CMTS_INLINE_ALWAYS uint64_t CMTS_CALLING_CONVENTION mask() const CMTS_NOTHROW
-	{
-		return *(const uint64_t*)this;
-	}
 };
 
 struct alignas(uint64_t) wait_list_control_block
 {
 	uint32_t head;
 	uint32_t generation;
-
-	CMTS_INLINE_ALWAYS uint_fast64_t CMTS_CALLING_CONVENTION mask() const CMTS_NOTHROW
-	{
-		return *(const uint64_t*)this;
-	}
 };
 
-struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE / 2) task_state
+struct alignas(CMTS_FALSE_SHARING_THRESHOLD / 2) task_state
 {
 	HANDLE					handle;
 	cmts_function_pointer_t	function;
@@ -259,7 +297,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE / 2) task_state
 	}
 };
 
-struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) fence_state
+struct alignas(CMTS_FALSE_SHARING_THRESHOLD) fence_state
 {
 	struct alignas(uint32_t) control_block
 	{
@@ -304,7 +342,7 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) fence_state
 	}
 };
 
-struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) counter_state
+struct alignas(CMTS_FALSE_SHARING_THRESHOLD) counter_state
 {
 	struct alignas(uint64_t) control_block
 	{
@@ -349,12 +387,12 @@ struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) counter_state
 	}
 };
 
-struct alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) cmts_shared_queue_state
+struct alignas(CMTS_FALSE_SHARING_THRESHOLD) cmts_shared_queue_state
 {
 	static constexpr size_t ENTRY_SIZE = sizeof(std::atomic<uint32_t>);
 
-	alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) std::atomic<uint_fast32_t> head;
-	alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) std::atomic<uint_fast32_t> tail;
+	alignas(CMTS_FALSE_SHARING_THRESHOLD) std::atomic<uint_fast32_t> head;
+	alignas(CMTS_FALSE_SHARING_THRESHOLD) std::atomic<uint_fast32_t> tail;
 	std::atomic<uint32_t>* values;
 
 	CMTS_INLINE_ALWAYS void initialize(void* const buffer)
@@ -429,11 +467,11 @@ CMTS_INLINE_NEVER static void CMTS_CALLING_CONVENTION shared_pool_release_no_inl
 static task_state*																task_pool_ptr;
 static fence_state*																fence_pool_ptr;
 static counter_state*															counter_pool_ptr;
-alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	task_pool_ctrl;
-alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	fence_pool_ctrl;
-alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static std::atomic<pool_control_block>	counter_pool_ctrl;
-alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) static cmts_shared_queue_state			queues[CMTS_MAX_PRIORITY];
-alignas(CMTS_EXPECTED_CACHE_LINE_SIZE) std::atomic<uint32_t>					scheduler_generation;
+alignas(CMTS_FALSE_SHARING_THRESHOLD) static std::atomic<pool_control_block>	task_pool_ctrl;
+alignas(CMTS_FALSE_SHARING_THRESHOLD) static std::atomic<pool_control_block>	fence_pool_ctrl;
+alignas(CMTS_FALSE_SHARING_THRESHOLD) static std::atomic<pool_control_block>	counter_pool_ctrl;
+alignas(CMTS_FALSE_SHARING_THRESHOLD) static cmts_shared_queue_state			queues[CMTS_MAX_PRIORITY];
+alignas(CMTS_FALSE_SHARING_THRESHOLD) static std::atomic<uint32_t>				scheduler_generation;
 
 CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_wait_list(std::atomic<wait_list_control_block>& ctrl) CMTS_NOTHROW
 {
@@ -488,7 +526,7 @@ CMTS_INLINE_ALWAYS static bool CMTS_CALLING_CONVENTION append_wait_list(T& state
 CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION adjust_queue_index(uint_fast32_t index) CMTS_NOTHROW
 {
 	uint_fast32_t r;
-#ifdef CMTS_DISABLE_THRASHING_COMPENSATION
+#ifdef CMTS_DISABLE_QUEUE_FALSE_SHARING_COMPENSATION
 	r = index;
 #else
 	// Rotate index bits to minimize the chance that multiple threads modify the same cache line.
@@ -677,17 +715,14 @@ static DWORD WINAPI thread_main(void* param) CMTS_NOTHROW
 			shared_pool_release_no_inline(task_pool_ctrl, task_pool_ptr, current_task);
 		}
 	}
+	CMTS_UNREACHABLE;
 }
 
 static cmts_result_t CMTS_CALLING_CONVENTION custom_library_init(const cmts_init_options_t* options) CMTS_NOTHROW
 {
-	CMTS_UNLIKELY_IF(options->max_tasks > CMTS_MAX_TASKS ||
-		options->task_stack_size == 0 ||
-		options->max_threads == 0 ||
-		CMTS_POPCOUNT(options->max_tasks) != 1 ||
-		options->max_tasks == 0)
+	CMTS_UNLIKELY_IF(options->max_tasks > CMTS_MAX_TASKS || options->task_stack_size == 0 || options->max_threads == 0 || CMTS_POPCOUNT(options->max_tasks) != 1 || options->max_tasks == 0)
 		return CMTS_ERROR_INVALID_PARAMETER;
-	load_cache_line_info();
+
 	task_stack_size = options->task_stack_size;
 	thread_count = options->max_threads;
 	max_tasks = options->max_tasks;
@@ -699,7 +734,7 @@ static cmts_result_t CMTS_CALLING_CONVENTION custom_library_init(const cmts_init
 	CMTS_UNLIKELY_IF(ptr == nullptr)
 		return CMTS_ERROR_ALLOCATION_FAILURE;
 	threads_ptr = (HANDLE*)ptr;
-	task_pool_ptr = (task_state*)CMTS_ROUND_TO_ALIGNMENT((size_t)(threads_ptr + thread_count), CMTS_EXPECTED_CACHE_LINE_SIZE);
+	task_pool_ptr = (task_state*)CMTS_ROUND_TO_ALIGNMENT((size_t)(threads_ptr + thread_count), CMTS_FALSE_SHARING_THRESHOLD);
 	fence_pool_ptr = (fence_state*)(task_pool_ptr + max_tasks);
 	counter_pool_ptr = (counter_state*)(fence_pool_ptr + max_tasks);
 	uint8_t* const qptr = (uint8_t*)(counter_pool_ptr + max_tasks);
@@ -718,28 +753,71 @@ static cmts_result_t CMTS_CALLING_CONVENTION custom_library_init(const cmts_init
 	{
 		if (options->use_manual_affinity)
 		{
-			for (uint_fast32_t i = 0; i != thread_count; ++i)
+			if (thread_count <= 64)
 			{
-				threads_ptr[i] = CreateThread(nullptr, options->thread_stack_size, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, nullptr);
-				CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
-					return CMTS_ERROR_THREAD_CREATION_FAILURE;
-				CMTS_UNLIKELY_IF(SetThreadAffinityMask(threads_ptr[i], ((DWORD_PTR)1U << (DWORD_PTR)options->cpu_indices[i])) == 0)
-					return CMTS_ERROR_THREAD_AFFINITY_FAILURE;
-				CMTS_UNLIKELY_IF(ResumeThread(threads_ptr[i]) == MAXDWORD)
-					return CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD;
+				for (uint_fast32_t i = 0; i != thread_count; ++i)
+				{
+					threads_ptr[i] = CreateThread(nullptr, options->thread_stack_size, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, nullptr);
+					CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
+						return CMTS_ERROR_THREAD_CREATION_FAILURE;
+					CMTS_UNLIKELY_IF(SetThreadAffinityMask(threads_ptr[i], ((DWORD_PTR)1U << (DWORD_PTR)options->cpu_indices[i])) == 0)
+						return CMTS_ERROR_THREAD_AFFINITY_FAILURE;
+					CMTS_UNLIKELY_IF(ResumeThread(threads_ptr[i]) == MAXDWORD)
+						return CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD;
+				}
+			}
+			else
+			{
+				for (uint_fast32_t i = 0; i != thread_count; ++i)
+				{
+					threads_ptr[i] = CreateThread(nullptr, options->thread_stack_size, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, nullptr);
+					CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
+						return CMTS_ERROR_THREAD_CREATION_FAILURE;
+					
+					const uint32_t index = options->cpu_indices[i];
+					GROUP_AFFINITY previous = {};
+					GROUP_AFFINITY group = {};
+					group.Group = index >> 6;
+					group.Mask = (DWORD_PTR)1 << (DWORD_PTR)(index & 63U);
+
+					CMTS_UNLIKELY_IF(SetThreadGroupAffinity(threads_ptr[i], &group, &previous) == 0)
+						return CMTS_ERROR_THREAD_AFFINITY_FAILURE;
+					CMTS_UNLIKELY_IF(ResumeThread(threads_ptr[i]) == MAXDWORD)
+						return CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD;
+				}
 			}
 		}
 		else
 		{
-			for (uint_fast32_t i = 0; i != thread_count; ++i)
+			if (thread_count <= 64)
 			{
-				threads_ptr[i] = CreateThread(nullptr, options->thread_stack_size, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, nullptr);
-				CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
-					return CMTS_ERROR_THREAD_CREATION_FAILURE;
-				CMTS_UNLIKELY_IF(SetThreadAffinityMask(threads_ptr[i], ((DWORD_PTR)1U << (DWORD_PTR)i)) == 0)
-					return CMTS_ERROR_THREAD_AFFINITY_FAILURE;
-				CMTS_UNLIKELY_IF(ResumeThread(threads_ptr[i]) == MAXDWORD)
-					return CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD;
+				for (uint_fast32_t i = 0; i != thread_count; ++i)
+				{
+					threads_ptr[i] = CreateThread(nullptr, options->thread_stack_size, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, nullptr);
+					CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
+						return CMTS_ERROR_THREAD_CREATION_FAILURE;
+					CMTS_UNLIKELY_IF(SetThreadAffinityMask(threads_ptr[i], ((DWORD_PTR)1U << (DWORD_PTR)i)) == 0)
+						return CMTS_ERROR_THREAD_AFFINITY_FAILURE;
+					CMTS_UNLIKELY_IF(ResumeThread(threads_ptr[i]) == MAXDWORD)
+						return CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD;
+				}
+			}
+			else
+			{
+				for (uint_fast32_t i = 0; i != thread_count; ++i)
+				{
+					threads_ptr[i] = CreateThread(nullptr, options->thread_stack_size, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, nullptr);
+					CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
+						return CMTS_ERROR_THREAD_CREATION_FAILURE;
+					GROUP_AFFINITY previous = {};
+					GROUP_AFFINITY group = {};
+					group.Group = i >> 6;
+					group.Mask = (DWORD_PTR)1 << (DWORD_PTR)(i & 63U);
+					CMTS_UNLIKELY_IF(SetThreadGroupAffinity(threads_ptr[i], &group, &previous) == 0)
+						return CMTS_ERROR_THREAD_AFFINITY_FAILURE;
+					CMTS_UNLIKELY_IF(ResumeThread(threads_ptr[i]) == MAXDWORD)
+						return CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD;
+				}
 			}
 		}
 	}
@@ -758,11 +836,10 @@ static cmts_result_t CMTS_CALLING_CONVENTION custom_library_init(const cmts_init
 
 static cmts_result_t CMTS_CALLING_CONVENTION default_library_init() CMTS_NOTHROW
 {
-	load_cache_line_info();
 	const uint_fast32_t ncpus = cmts_cpu_core_count();
 	task_stack_size = CMTS_DEFAULT_TASK_STACK_SIZE;
 	thread_count = ncpus;
-	max_tasks = ncpus * 256;
+	max_tasks = ncpus * 128;
 	queue_capacity_log2 = CMTS_UNSIGNED_LOG2(max_tasks);
 	queue_capacity_mask = max_tasks - 1;
 	const size_t queue_buffer_size = max_tasks * sizeof(cmts_shared_queue_state::ENTRY_SIZE);
@@ -770,7 +847,7 @@ static cmts_result_t CMTS_CALLING_CONVENTION default_library_init() CMTS_NOTHROW
 	uint8_t* const ptr = (uint8_t*)CMTS_OS_ALLOCATE(buffer_size);
 	CMTS_ASSERT(ptr != nullptr);
 	threads_ptr = (HANDLE*)ptr;
-	task_pool_ptr = (task_state*)CMTS_ROUND_TO_ALIGNMENT((size_t)(threads_ptr + thread_count), CMTS_EXPECTED_CACHE_LINE_SIZE);
+	task_pool_ptr = (task_state*)CMTS_ROUND_TO_ALIGNMENT((size_t)(threads_ptr + thread_count), CMTS_FALSE_SHARING_THRESHOLD);
 	fence_pool_ptr = (fence_state*)(task_pool_ptr + max_tasks);
 	counter_pool_ptr = (counter_state*)(fence_pool_ptr + max_tasks);
 	uint8_t* const qptr = (uint8_t*)(counter_pool_ptr + max_tasks);
@@ -788,15 +865,35 @@ static cmts_result_t CMTS_CALLING_CONVENTION default_library_init() CMTS_NOTHROW
 		counter_pool_ptr[i].reset();
 	}
 
-	for (uint_fast32_t i = 0; i != thread_count; ++i)
+	if (thread_count <= 64)
 	{
-		threads_ptr[i] = CreateThread(nullptr, CMTS_DEFAULT_THREAD_STACK_SIZE, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, nullptr);
-		CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
-			return CMTS_ERROR_THREAD_CREATION_FAILURE;
-		CMTS_UNLIKELY_IF(SetThreadAffinityMask(threads_ptr[i], ((DWORD_PTR)1U << (DWORD_PTR)i)) == 0)
-			return CMTS_ERROR_THREAD_AFFINITY_FAILURE;
-		CMTS_UNLIKELY_IF(ResumeThread(threads_ptr[i]) == MAXDWORD)
-			return CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD;
+		for (uint_fast32_t i = 0; i != thread_count; ++i)
+		{
+			threads_ptr[i] = CreateThread(nullptr, CMTS_DEFAULT_THREAD_STACK_SIZE, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, nullptr);
+			CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
+				return CMTS_ERROR_THREAD_CREATION_FAILURE;
+			CMTS_UNLIKELY_IF(SetThreadAffinityMask(threads_ptr[i], ((DWORD_PTR)1U << (DWORD_PTR)i)) == 0)
+				return CMTS_ERROR_THREAD_AFFINITY_FAILURE;
+			CMTS_UNLIKELY_IF(ResumeThread(threads_ptr[i]) == MAXDWORD)
+				return CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD;
+		}
+	}
+	else
+	{
+		for (uint_fast32_t i = 0; i != thread_count; ++i)
+		{
+			threads_ptr[i] = CreateThread(nullptr, CMTS_DEFAULT_THREAD_STACK_SIZE, thread_main, (void*)(size_t)i, CREATE_SUSPENDED, nullptr);
+			CMTS_UNLIKELY_IF(threads_ptr[i] == nullptr)
+				return CMTS_ERROR_THREAD_CREATION_FAILURE;
+			GROUP_AFFINITY previous = {};
+			GROUP_AFFINITY group = {};
+			group.Group = i >> 6;
+			group.Mask = (DWORD_PTR)1 << (DWORD_PTR)(i & 63U);
+			CMTS_UNLIKELY_IF(SetThreadGroupAffinity(threads_ptr[i], &group, &previous) == 0)
+				return CMTS_ERROR_THREAD_AFFINITY_FAILURE;
+			CMTS_UNLIKELY_IF(ResumeThread(threads_ptr[i]) == MAXDWORD)
+				return CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD;
+		}
 	}
 
 	return CMTS_SUCCESS;
@@ -809,8 +906,23 @@ extern "C"
 
 	cmts_result_t CMTS_CALLING_CONVENTION cmts_init(const cmts_init_options_t* options)
 	{
+		cmts_result_t r;
 		non_atomic_store(should_continue, true);
-		return options == nullptr ? default_library_init() : custom_library_init(options);
+
+#ifndef USING_STD_CACHE_LINE
+		load_cache_line_info();
+#endif
+
+		if (options == nullptr)
+		{
+			r = default_library_init();
+		}
+		else
+		{
+			r = custom_library_init(options);
+		}
+
+		return r;
 	}
 
 	cmts_result_t CMTS_CALLING_CONVENTION cmts_break()
@@ -1189,7 +1301,7 @@ extern "C"
 		return task_pool_ptr[current_task].priority;
 	}
 
-	uint32_t CMTS_CALLING_CONVENTION cmts_thread_id()
+	uint32_t CMTS_CALLING_CONVENTION cmts_thread_index()
 	{
 		CMTS_ASSERT_IS_INITIALIZED;
 		return processor_index;

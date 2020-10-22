@@ -30,47 +30,59 @@
 #include <stdint.h>
 
 #ifndef CMTS_NODISCARD
-	#if defined(__cplusplus)
-		#if __has_cpp_attribute(nodiscard)
-		#define CMTS_NODISCARD [[nodiscard]]
-		#else
-		#define CMTS_NODISCARD
-		#endif
-	#else
-		#define CMTS_NODISCARD
-	#endif
+#if defined(__cplusplus)
+#if __has_cpp_attribute(nodiscard)
+#define CMTS_NODISCARD [[nodiscard]]
+#else
+#define CMTS_NODISCARD
+#endif
+#else
+#define CMTS_NODISCARD
+#endif
 #endif
 
 #ifndef CMTS_NORETURN
-	#if defined(__cplusplus)
-		#if __has_cpp_attribute(noreturn)
-		#define CMTS_NORETURN [[noreturn]]
-		#else
-		#define CMTS_NORETURN
-		#endif
-	#else
-		#define CMTS_NORETURN
-	#endif
+#if defined(__cplusplus)
+#if __has_cpp_attribute(noreturn)
+#define CMTS_NORETURN [[noreturn]]
+#else
+#define CMTS_NORETURN
+#endif
+#else
+#define CMTS_NORETURN
+#endif
 #endif
 
 #ifndef CMTS_MAX_PRIORITY
-	#define CMTS_MAX_PRIORITY 3
+#define CMTS_MAX_PRIORITY 3
 #elif CMTS_MAX_PRIORITY > 256
-	#error "Error, CMTS_MAX_PRIORITY must not exceed 256"
+#error "Error, CMTS_MAX_PRIORITY must not exceed 256"
 #endif
 
 #ifndef CMTS_EXPECTED_CACHE_LINE_SIZE
-	#define CMTS_EXPECTED_CACHE_LINE_SIZE 64
+#ifdef __cplusplus
+#if __cplusplus < 201703L
+#define CMTS_EXPECTED_CACHE_LINE_SIZE 64
+#else
+#if __cplusplus < 201703L
+#define CMTS_FALSE_SHARING_THRESHOLD 64
+#else
+#define CMTS_FALSE_SHARING_THRESHOLD std::hardware_destructive_interference_size
+#endif
+#endif
+#else
+#define CMTS_EXPECTED_CACHE_LINE_SIZE 64
+#endif
 #endif
 
 #if !defined(CMTS_NOTHROW) && defined(__cplusplus)
-	#define CMTS_NOTHROW noexcept
+#define CMTS_NOTHROW noexcept
 #else
-	#define CMTS_NOTHROW
+#define CMTS_NOTHROW
 #endif
 
 #ifndef CMTS_CALLING_CONVENTION
-	#define CMTS_CALLING_CONVENTION
+#define CMTS_CALLING_CONVENTION
 #endif
 
 #ifdef __cplusplus
@@ -79,12 +91,12 @@ typedef bool cmts_boolean_t;
 typedef _Bool cmts_boolean_t;
 #endif
 
-typedef enum cmts_const_t
-{
-	CMTS_MAX_TASKS = (1U << 24U),
-	CMTS_NIL_HANDLE = -1
-} cmts_const_t;
+#define CMTS_MAX_TASKS (1U << 24U)
+#define CMTS_NIL_HANDLE (~(uint32_t)0)
 
+/// <summary>
+/// CMTS error code enumeration. Negative values indicate an error.
+/// </summary>
 typedef enum cmts_result_t
 {
 	CMTS_SUCCESS = 0,
@@ -479,7 +491,7 @@ extern "C"
 	/// <returns>
 	/// The index of the current worker thread.
 	/// </returns>
-	uint32_t CMTS_CALLING_CONVENTION cmts_thread_id();
+	uint32_t CMTS_CALLING_CONVENTION cmts_thread_index();
 
 	/// <returns>
 	/// The number of worker threads used by CMTS.
@@ -505,7 +517,6 @@ extern "C"
 #ifdef __cplusplus
 }
 #endif
-
 
 
 #ifdef CMTS_IMPLEMENTATION
