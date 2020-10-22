@@ -103,8 +103,8 @@ typedef enum cmts_result_t
 	CMTS_SYNC_OBJECT_EXPIRED = 1,
 
 	CMTS_ERROR_INVALID_PARAMETER = -1,
-	CMTS_ERROR_ALLOCATION_FAILURE = -2,
-	CMTS_ERROR_DEALLOCATION_FAILURE = -3,
+	CMTS_ERROR_MEMORY_ALLOCATION_FAILURE = -2,
+	CMTS_ERROR_MEMORY_DEALLOCATION_FAILURE = -3,
 	CMTS_ERROR_THREAD_CREATION_FAILURE = -4,
 	CMTS_ERROR_THREAD_AFFINITY_FAILURE = -5,
 	CMTS_ERROR_FAILED_TO_RESUME_WORKER_THREAD = -6,
@@ -115,6 +115,7 @@ typedef enum cmts_result_t
 	CMTS_DISPATCH_ERROR_EXPIRED_SYNC_OBJECT = -11,
 	CMTS_ERROR_INVALID_SYNC_OBJECT_HANDLE = -12,
 	CMTS_ERROR_EXPIRED_SYNC_OBJECT = -14,
+	CMTS_ERROR_AFFINITY_IS_REQUIRED = -15,
 
 } cmts_result_t;
 
@@ -415,21 +416,13 @@ extern "C"
 	/// <param name="fence">
 	/// A valid handle to a fence object.
 	/// </param>
-	/// <returns>
-	/// CMTS_SUCCESS if the operation has succeeded, CMTS_SYNC_OBJECT_EXPIRED if the fence expired while attepting to add the current task to its wait list or CMTS_ERROR_EXPIRED_SYNC_OBJECT if the fence expired before that.
-	/// </returns>
-	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_fence(cmts_fence_t fence);
-
-	/// <summary>
-	/// Halts execution of the current task until the fence is signaled. Then it releases ownership of the fence object.
-	/// </summary>
-	/// <param name="fence">
-	/// A valid handle to a fence object.
+	/// <param name="should_delete">
+	/// Whether the fence should be deleted once the wait finishes.
 	/// </param>
 	/// <returns>
 	/// CMTS_SUCCESS if the operation has succeeded, CMTS_SYNC_OBJECT_EXPIRED if the fence expired while attepting to add the current task to its wait list or CMTS_ERROR_EXPIRED_SYNC_OBJECT if the fence expired before that.
 	/// </returns>
-	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_fence_and_delete(cmts_fence_t fence);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_fence(cmts_fence_t fence, cmts_boolean_t should_delete);
 
 	/// <summary>
 	/// Releases ownership of the specified fence object.
@@ -464,21 +457,13 @@ extern "C"
 	/// <param name="counter">
 	/// A valid handle to a counter object.
 	/// </param>
-	/// <returns>
-	/// CMTS_SUCCESS if the operation has succeeded, CMTS_SYNC_OBJECT_EXPIRED if the counter expired while attepting to add the current task to its wait list or CMTS_ERROR_EXPIRED_SYNC_OBJECT if the counter expired before that.
-	/// </returns>
-	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_counter(cmts_counter_t counter);
-
-	/// <summary>
-	/// Halts execution of the current task until the counter is signaled. Then it releases ownership of the counter object.
-	/// </summary>
-	/// <param name="counter">
-	/// A valid handle to a counter object.
+	/// <param name="should_delete">
+	/// Whether the counter should be deleted once the wait finishes.
 	/// </param>
 	/// <returns>
 	/// CMTS_SUCCESS if the operation has succeeded, CMTS_SYNC_OBJECT_EXPIRED if the counter expired while attepting to add the current task to its wait list or CMTS_ERROR_EXPIRED_SYNC_OBJECT if the counter expired before that.
 	/// </returns>
-	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_counter_and_delete(cmts_counter_t counter);
+	cmts_result_t CMTS_CALLING_CONVENTION cmts_await_counter(cmts_counter_t counter, cmts_boolean_t should_delete);
 
 	/// <summary>
 	/// Releases ownership of the specified counter object.
@@ -525,6 +510,11 @@ extern "C"
 	/// The number of cores of the current CPU.
 	/// </returns>
 	uint32_t CMTS_CALLING_CONVENTION cmts_cpu_core_count();
+
+	/// <returns>
+	/// The index of the current CPU core.
+	/// </returns>
+	uint32_t CMTS_CALLING_CONVENTION cmts_cpu_core_index();
 
 	/// <summary>
 	/// Executes a group of tasks, emulating a parallel for-loop.
