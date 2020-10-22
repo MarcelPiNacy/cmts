@@ -3,9 +3,9 @@
 cmts is a C++14 header-only library with a C-compatible API that implements a scheduler for cooperative multitasking.
 ## Warning
 The library is currently work in progress. You should only use code from the release branch, once it is created.
-#### Compilers
-MSVC is currently the only supported compiler. cmts has not yet been tested on Clang and GCC, but it might work. However, it is extremely likely to cause crashes at runtime in release builds due to the stacks of the tasks being moved across threads.
-So if your compiler supports it, in release builds you should enable the equivalent of MSVC's "Enable Fiber-Safe Optimizations". In the future, a workaround will be supported via a compile-time macro.
+#### Compiler Support
+MSVC is currently the only supported compiler. cmts has not yet been tested on Clang and GCC, but it might work. However, it is extremely likely to cause crashes at runtime in release builds due to the tasks stacks being moved across threads.
+To avoid this in release builds, you should enable the equivalent of MSVC's "Enable Fiber-Safe Optimizations" if your compiler supports it. In the future, a workaround will be supported via a macro.
 ## Usage
 #### Adding cmts to your project
 Like other C/C++ header-only libraries, you must explicitly include the cmts source code by defining `CMTS_IMPLEMENTATION` and then including `cmts.h`:
