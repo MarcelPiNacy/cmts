@@ -902,6 +902,10 @@ static cmts_result_t CMTS_CALLING_CONVENTION custom_library_init(const cmts_init
 	counter_pool_ptr = (counter_state*)internal_buffer;
 	internal_buffer += sizeof(counter_state) * max_tasks;
 
+	(*(pool_control_block*)&task_pool_ctrl).reset();
+	(*(pool_control_block*)&fence_pool_ctrl).reset();
+	(*(pool_control_block*)&counter_pool_ctrl).reset();
+
 	for (uint_fast32_t i = 0; i != CMTS_MAX_PRIORITY; ++i)
 	{
 		queues[i].initialize(internal_buffer);
@@ -1002,10 +1006,6 @@ static cmts_result_t CMTS_CALLING_CONVENTION custom_library_init(const cmts_init
 
 static cmts_result_t CMTS_CALLING_CONVENTION default_library_init() CMTS_NOTHROW
 {
-	(*(pool_control_block*)&task_pool_ctrl).reset();
-	(*(pool_control_block*)&fence_pool_ctrl).reset();
-	(*(pool_control_block*)&counter_pool_ctrl).reset();
-
 	const uint_fast32_t ncpus = cmts_cpu_core_count();
 
 	task_stack_size = CMTS_DEFAULT_TASK_STACK_SIZE;
@@ -1046,6 +1046,10 @@ static cmts_result_t CMTS_CALLING_CONVENTION default_library_init() CMTS_NOTHROW
 	internal_buffer += sizeof(fence_state) * max_tasks;
 	counter_pool_ptr = (counter_state*)internal_buffer;
 	internal_buffer += sizeof(counter_state) * max_tasks;
+
+	(*(pool_control_block*)&task_pool_ctrl).reset();
+	(*(pool_control_block*)&fence_pool_ctrl).reset();
+	(*(pool_control_block*)&counter_pool_ctrl).reset();
 
 	for (uint_fast32_t i = 0; i != CMTS_MAX_PRIORITY; ++i)
 	{
