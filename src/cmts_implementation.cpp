@@ -191,10 +191,12 @@ static uint_fast8_t					queue_capacity_log2;
 static uint_fast32_t				queue_capacity_mask;
 static HANDLE*						threads_ptr;
 
+#ifndef CMTS_THREAD_LOCAL_WORKAROUND
 static thread_local HANDLE			root_task;
 static thread_local uint_fast32_t	current_task;
 static thread_local uint_fast32_t	processor_index;
 static thread_local uint_fast32_t	local_reserved_indices[CMTS_MAX_PRIORITY];
+#endif
 
 #ifndef USING_STD_CACHE_LINE
 CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION load_cache_line_info() CMTS_NOTHROW
@@ -547,7 +549,7 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION submit_to_queue(const uin
 	while (true)
 	{
 		uint_fast32_t empty = UINT32_MAX;
-		while ((non_atomic_load(e) != empty) && non_atomic_load(should_continue))
+		while ((non_atomic_load(e) != empty) & non_atomic_load(should_continue))
 			CMTS_YIELD_CPU;
 
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
@@ -557,7 +559,7 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION submit_to_queue(const uin
 			break;
 	}
 
-#ifdef CMTS_CONSERVATIVE_SCHEDULER
+#ifdef CMTS_NO_BUSY_WAIT
 	(void)scheduler_generation.fetch_add(1, std::memory_order_release);
 	WakeByAddressSingle(&scheduler_generation);
 #endif
@@ -602,7 +604,7 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 			}
 		}
 
-#ifdef CMTS_CONSERVATIVE_SCHEDULER
+#ifdef CMTS_NO_BUSY_WAIT
 		WaitOnAddress(&scheduler_generation, &sg, sizeof(scheduler_generation), INFINITE);
 #endif
 	}
@@ -955,7 +957,7 @@ extern "C"
 		CMTS_ASSERT_IS_INITIALIZED;
 		should_continue.store(false, std::memory_order_release);
 
-#ifdef CMTS_CONSERVATIVE_SCHEDULER
+#ifdef CMTS_NO_BUSY_WAIT
 		(void)scheduler_generation.fetch_add(1, std::memory_order_release);
 		WakeByAddressAll(&scheduler_generation);
 #endif

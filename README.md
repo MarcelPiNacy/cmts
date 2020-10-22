@@ -1,8 +1,8 @@
 # cmts
 ## About
-cmts is a C++14 header-only library with a C-compatible API that implements a scheduler for cooperative multitasking.
+cmts is a C++14 header-only library with a C-compatible API that implements a lock-free scheduler for cooperative multitasking.
 ## Warning
-The library is currently work in progress. You should only use code from the release branch, once it is created.
+The library is currently work in progress. You should only use code from the release branch.
 #### Compiler Support
 MSVC is currently the only supported compiler. cmts has not yet been tested on Clang and GCC, but it might work. However, it is extremely likely to cause crashes at runtime in release builds due to the tasks stacks being moved across threads.
 To avoid this in release builds, you should enable the equivalent of MSVC's "Enable Fiber-Safe Optimizations" if your compiler supports it. In the future, a workaround will be supported via a macro.
@@ -37,7 +37,7 @@ You can configure cmts through the following macros:
 - `CMTS_DISABLE_QUEUE_FALSE_SHARING_COMPENSATION`: If defined, disables false sharing compensation by the scheduler queues. By default, the head and tail indices are modified to try to access only one element every cache line.
 - `CMTS_MAX_PRIORITY`: Specifies the number of task queues, 3 by default. This value must not exceed 256.
 - `CMTS_CALLING_CONVENTION`: Sets the calling convention of all library functions, with the exception of the fiber and thread functions on Windows platforms.
-- `CMTS_CONSERVATIVE_SCHEDULER`: If defined, the worker threads sleep, instead of busy-waiting, while there are no tasks to run. Since this is implemented on Windows using WaitOnAddress/WakeByAddressSingle, either `Synchronization.lib` or `API-MS-Win-Core-Synch-l1-2-0.dll` must be linked.
+- `CMTS_NO_BUSY_WAIT`: If defined, the worker threads sleep, instead of busy-waiting, while there are no tasks to run. Since this is implemented on Windows using WaitOnAddress/WakeByAddressSingle, either `Synchronization.lib` or `API-MS-Win-Core-Synch-l1-2-0.dll` must be linked.
 ## Examples
 ##### Hello World
 ```cpp
