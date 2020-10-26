@@ -687,12 +687,11 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION submit_to_queue(const uin
 		uint_fast32_t empty = UINT32_MAX;
 		while ((non_atomic_load(e) != empty) & non_atomic_load(should_continue))
 			CMTS_YIELD_CPU;
-
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
 			conditionally_exit_thread();
-
-		CMTS_LIKELY_IF(e.compare_exchange_weak(empty, task_index, std::memory_order_release, std::memory_order_relaxed))
-			break;
+		CMTS_LIKELY_IF(e.load(std::memory_order_acquire) == empty)
+			CMTS_LIKELY_IF(e.compare_exchange_weak(empty, task_index, std::memory_order_release, std::memory_order_relaxed))
+				break;
 	}
 
 #ifdef CMTS_NO_BUSY_WAIT
@@ -730,13 +729,11 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 			{
 				uint_fast32_t expected = e.load(std::memory_order_acquire);
 				CMTS_LIKELY_IF(expected != UINT32_MAX)
-				{
 					CMTS_LIKELY_IF(e.compare_exchange_weak(expected, UINT32_MAX, std::memory_order_release, std::memory_order_relaxed))
 					{
 						set_queue_local_index(i, UINT32_MAX);
 						return expected;
 					}
-				}
 				CMTS_YIELD_CPU;
 			}
 		}
