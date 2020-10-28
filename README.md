@@ -39,7 +39,7 @@ You can configure CMTS through the following macros:
 - `CMTS_DISABLE_QUEUE_FALSE_SHARING_COMPENSATION`: If defined, disables false sharing compensation by the scheduler queues. By default, the head and tail indices are modified to try to access only one element every cache line.
 - `CMTS_MAX_PRIORITY`: Specifies the number of task queues, 3 by default. This value must not exceed 256.
 - `CMTS_CALLING_CONVENTION`: Sets the calling convention of all library functions, with the exception of the fiber and thread functions on Windows platforms.
-- `CMTS_NO_BUSY_WAIT`: If defined, the worker threads sleep, instead of busy-waiting, while there are no tasks to run. Since this is implemented on Windows using WaitOnAddress/WakeByAddressSingle, either `Synchronization.lib` or `API-MS-Win-Core-Synch-l1-2-0.dll` must be linked.
+- `CMTS_NO_BUSY_WAIT`: If defined, the worker threads sleep while there are no tasks to run. Since this is implemented on Windows using WaitOnAddress/WakeByAddressSingle, either `Synchronization.lib` or `API-MS-Win-Core-Synch-l1-2-0.dll` must be linked.
 ## Examples
 ##### Hello World
 ```cpp
