@@ -19,12 +19,13 @@ This step must only be done *once* per project and preferably in its own separat
 #### Library initialization
 To initialize CMTS you must call `cmts_init`, with either `nullptr` or a pointer to a `cmts_init_options_t` struct. If `nullptr` is passed, the library will:
 - Launch as many worker threads as CPU cores.
-- Lock threads to cores with affinity.
-- Set the size of the task, fence and counter pools to 128 * `cmts_thread_count()`.
+- Lock worker threads to CPU cores with affinity.
+- Set the capacity of the task, fence and counter pools to 128 * CPU core count.
 - Set the task and worker thread stack size to 2^16.
 #### Launching tasks
 The easiest way to submit a task to the CMTS scheduler is by calling `cmts_dispatch` with a valid function pointer and `nullptr`.
-However, you will not be able to wait for the task to finish
+However, this way doesn't let you specify the function parameter and the scheduling priority. More importantly, it also doesn't let you wait for the task to finish.
+By passing a pointer to a `cmts_dispatch_options_t` struct, you can do all of that.
 #### Library cleanup
 When you are done using CMTS, you must first call `cmts_signal_finalize()`.
 This will signal to the worker threads to exit once they are done executing their current task. Then, you must call `cmts_finalize()`, which will block until all worker threads have quit.
