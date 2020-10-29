@@ -136,8 +136,8 @@ static_assert(static_is_power_of_2(CMTS_FALSE_SHARING_THRESHOLD), "CMTS_FALSE_SH
 
 #ifdef CMTS_DEBUG
 #include <cassert>
-#define CMTS_ASSERT(...) assert(expression)
-#define CMTS_ASSERT_IMPURE(...) assert(expression)
+#define CMTS_ASSERT(expression) assert(expression)
+#define CMTS_ASSERT_IMPURE(expression) assert(expression)
 #define CMTS_ASSERT_IS_TASK CMTS_ASSERT(get_root_task() != nullptr)
 #define CMTS_ASSERT_IS_INITIALIZED CMTS_ASSERT(threads_ptr != nullptr)
 #else
