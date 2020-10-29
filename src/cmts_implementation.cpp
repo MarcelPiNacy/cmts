@@ -55,9 +55,7 @@
 #else
 #error "UNSUPPORTED PROCESSOR ARCHITECTURE"
 #endif
-
-#define CMTS_LIKELY_IF(expression) if (__builtin_expect((expression), 1))
-#define CMTS_UNLIKELY_IF(expression) if (__builtin_expect((expression), 0))
+#define CMTS_EXPECT(expression, value) __builtin_expect((expression), (value))
 #define CMTS_ASSUME(expression) __builtin_assume((expression))
 #define CMTS_UNREACHABLE __builtin_unreachable()
 #define CMTS_ALLOCA(size) __builtin_alloca((size))
@@ -85,8 +83,7 @@
 #else
 #error "UNSUPPORTED PROCESSOR ARCHITECTURE"
 #endif
-#define CMTS_LIKELY_IF(expression) if ((expression))
-#define CMTS_UNLIKELY_IF(expression) if ((expression))
+#define CMTS_EXPECT(expression, value) (expression)
 #define CMTS_ASSUME(expression) __assume((expression))
 #define CMTS_ALLOCA(size) _alloca((size))
 #define CMTS_POPCOUNT(value) __popcnt((value))
@@ -108,6 +105,9 @@
 #else
 #error "cmts: UNSUPPORTED COMPILER";
 #endif
+
+#define CMTS_LIKELY_IF(expression) if (CMTS_EXPECT(expression, true))
+#define CMTS_UNLIKELY_IF(expression) if (CMTS_EXPECT(expression, false))
 
 #ifdef __cplusplus
 #if __cplusplus >= 201703L
@@ -136,11 +136,13 @@ static_assert(static_is_power_of_2(CMTS_FALSE_SHARING_THRESHOLD), "CMTS_FALSE_SH
 
 #ifdef CMTS_DEBUG
 #include <cassert>
-#define CMTS_ASSERT(...) assert(__VA_ARGS__)
+#define CMTS_ASSERT(...) assert(expression)
+#define CMTS_ASSERT_IMPURE(...) assert(expression)
 #define CMTS_ASSERT_IS_TASK CMTS_ASSERT(get_root_task() != nullptr)
 #define CMTS_ASSERT_IS_INITIALIZED CMTS_ASSERT(threads_ptr != nullptr)
 #else
-#define CMTS_ASSERT(expression) CMTS_ASSUME((expression))
+#define CMTS_ASSERT(expression) CMTS_ASSUME(expression)
+#define CMTS_ASSERT_IMPURE(expression) (void)(expression);
 #define CMTS_ASSERT_IS_TASK
 #define CMTS_ASSERT_IS_INITIALIZED
 #endif
@@ -186,8 +188,8 @@ static_assert(queue_shift != 0, "std::hardware_destructive_interference_size was
 #endif
 
 #ifdef CMTS_NO_BUSY_WAIT
-static decltype(WaitOnAddress*)				futex_await;
-static decltype(WakeByAddressSingle*)		futex_signal;
+static decltype(WaitOnAddress)*				futex_await;
+static decltype(WakeByAddressSingle)*		futex_signal;
 #endif
 
 static uint_fast32_t						task_stack_size;
@@ -639,7 +641,6 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_wait_list(
 
 CMTS_INLINE_ALWAYS static bool CMTS_CALLING_CONVENTION try_append_wait_list(std::atomic<wait_list_control_block>& ctrl, const uint_fast32_t index) CMTS_NOTHROW
 {
-	bool r = false;
 	wait_list_control_block c, nc;
 	c = ctrl.load(std::memory_order_acquire);
 	nc.head = index;
@@ -789,8 +790,8 @@ static void WINAPI task_main(void* param) CMTS_NOTHROW
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
 			conditionally_exit_thread();
 
-		CMTS_ASSERT(get_current_task() < CMTS_MAX_TASKS);
-		CMTS_ASSERT(get_current_task() < max_tasks);
+		CMTS_ASSERT_IMPURE(get_current_task() < CMTS_MAX_TASKS);
+		CMTS_ASSERT_IMPURE(get_current_task() < max_tasks);
 		task_state& state = task_pool_ptr[get_current_task()];
 		CMTS_ASSERT(state.function != nullptr);
 		state.function(state.parameter);
@@ -804,7 +805,7 @@ static DWORD WINAPI thread_main(void* param) CMTS_NOTHROW
 	set_worker_thread_index((uint_fast32_t)(size_t)param);
 	set_root_task(ConvertThreadToFiberEx(nullptr, FIBER_FLAG_FLOAT_SWITCH));
 	
-	CMTS_ASSERT(get_root_task() != nullptr);
+	CMTS_ASSERT_IMPURE(get_root_task() != nullptr);
 
 	init_local_queue_indices();
 
@@ -812,8 +813,8 @@ static DWORD WINAPI thread_main(void* param) CMTS_NOTHROW
 	{
 		set_current_task(fetch_from_queue());
 
-		CMTS_ASSERT(get_current_task() < CMTS_MAX_TASKS);
-		CMTS_ASSERT(get_current_task() < max_tasks);
+		CMTS_ASSERT_IMPURE(get_current_task() < CMTS_MAX_TASKS);
+		CMTS_ASSERT_IMPURE(get_current_task() < max_tasks);
 
 		task_state& f = task_pool_ptr[get_current_task()];
 
@@ -1106,10 +1107,10 @@ static bool CMTS_CALLING_CONVENTION enable_queue_futex() CMTS_NOTHROW
 	HMODULE hmodule = GetModuleHandleA("Synchronization.lib");
 	if (hmodule == nullptr)
 		hmodule = GetModuleHandleA("API-MS-Win-Core-Synch-l1-2-0.dll");
-	futex_await = (decltype(WaitOnAddress*))GetProcAddress(hmodule, "WaitOnAddress");
+	futex_await = (decltype(WaitOnAddress)*)GetProcAddress(hmodule, "WaitOnAddress");
 	CMTS_UNLIKELY_IF(futex_await == nullptr)
 		return false;
-	futex_signal = (decltype(WakeByAddressSingle*))GetProcAddress(hmodule, "WakeByAddressSingle");
+	futex_signal = (decltype(WakeByAddressSingle)*)GetProcAddress(hmodule, "WakeByAddressSingle");
 	CMTS_UNLIKELY_IF(futex_signal == nullptr)
 		return false;
 	return true;
@@ -1324,6 +1325,7 @@ extern "C"
 		CMTS_ASSERT_IS_TASK;
 		task_pool_ptr[get_current_task()].function = nullptr;
 		cmts_yield();
+		CMTS_UNREACHABLE;
 	}
 
 	cmts_fence_t CMTS_CALLING_CONVENTION cmts_new_fence()

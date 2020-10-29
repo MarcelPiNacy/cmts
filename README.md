@@ -6,7 +6,7 @@ The library is currently work in progress. You should only use code from the rel
 #### Operating System
 Right now, only Windows (8 and over) is supported.
 #### Compiler Support
-MSVC is the only supported compiler for now. CMTS has not yet been tested on Clang and GCC, but it might work. However, it is extremely likely to cause crashes at runtime in release builds due to the tasks stacks being moved across threads.
+MSVC is the only supported compiler for now. CMTS has not yet been tested on Clang and GCC, but it might work. However, it is extremely likely to cause crashes at runtime in release builds due to the task stacks being moved across threads.
 To avoid this in release builds, you should enable the equivalent of MSVC's "Enable Fiber-Safe Optimizations" if your compiler supports it. In the future, a workaround will be supported via a macro.
 ## Usage
 #### Adding CMTS to your project
