@@ -185,6 +185,11 @@ static_assert(queue_shift != 0, "std::hardware_destructive_interference_size was
 
 #endif
 
+#ifdef CMTS_NO_BUSY_WAIT
+static decltype(WaitOnAddress*)				futex_await;
+static decltype(WakeByAddressSingle*)		futex_signal;
+#endif
+
 static uint_fast32_t						task_stack_size;
 static uint_fast32_t						max_tasks;
 static uint_fast32_t						worker_thread_count;
@@ -696,7 +701,7 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION submit_to_queue(const uin
 
 #ifdef CMTS_NO_BUSY_WAIT
 	(void)scheduler_generation.fetch_add(1, std::memory_order_release);
-	WakeByAddressSingle(&scheduler_generation);
+	futex_signal(&scheduler_generation);
 #endif
 }
 
@@ -739,7 +744,7 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 		}
 
 #ifdef CMTS_NO_BUSY_WAIT
-		WaitOnAddress(&scheduler_generation, &sg, sizeof(scheduler_generation), INFINITE);
+		futex_await(&scheduler_generation, &sg, sizeof(scheduler_generation), INFINITE);
 #endif
 	}
 }
@@ -1095,6 +1100,22 @@ static cmts_result_t CMTS_CALLING_CONVENTION default_library_init() CMTS_NOTHROW
 	return CMTS_SUCCESS;
 }
 
+#ifdef CMTS_NO_BUSY_WAIT
+static bool CMTS_CALLING_CONVENTION enable_queue_futex() CMTS_NOTHROW
+{
+	HMODULE hmodule = GetModuleHandleA("Synchronization.lib");
+	if (hmodule == nullptr)
+		hmodule = GetModuleHandleA("API-MS-Win-Core-Synch-l1-2-0.dll");
+	futex_await = (decltype(WaitOnAddress*))GetProcAddress(hmodule, "WaitOnAddress");
+	CMTS_UNLIKELY_IF(futex_await == nullptr)
+		return false;
+	futex_signal = (decltype(WakeByAddressSingle*))GetProcAddress(hmodule, "WakeByAddressSingle");
+	CMTS_UNLIKELY_IF(futex_signal == nullptr)
+		return false;
+	return true;
+}
+#endif
+
 
 
 extern "C"
@@ -1102,16 +1123,30 @@ extern "C"
 
 	cmts_result_t CMTS_CALLING_CONVENTION cmts_init(const cmts_init_options_t* options)
 	{
+		CMTS_ASSERT(threads_ptr == nullptr);
+
 		cmts_result_t r;
 		non_atomic_store(should_continue, true);
+
+#ifdef CMTS_NO_BUSY_WAIT
+		if (futex_signal == nullptr)
+		{
+			CMTS_UNLIKELY_IF(!enable_queue_futex())
+			{
+				return CMTS_ERROR_FAILED_TO_ENABLE_FUTEXES;
+			}
+		}
+#endif
 
 #ifndef USING_STD_CACHE_LINE
 		load_cache_line_info();
 #endif
+
 		if (options == nullptr)
 			r = default_library_init();
 		else
 			r = custom_library_init(options);
+
 		return r;
 	}
 
