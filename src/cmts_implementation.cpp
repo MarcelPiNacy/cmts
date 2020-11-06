@@ -655,12 +655,20 @@ CMTS_INLINE_ALWAYS static bool CMTS_CALLING_CONVENTION append_wait_list(T& state
 	while (true)
 	{
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+		{
 			conditionally_exit_thread();
+		}
 
 		CMTS_UNLIKELY_IF(state.is_done())
+		{
 			return false;
+		}
+		
 		CMTS_LIKELY_IF(try_append_wait_list(state.wait_list, task_index))
+		{
 			return true;
+		}
+
 		CMTS_YIELD_CPU;
 	}
 	CMTS_UNREACHABLE;
@@ -691,13 +699,24 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION submit_to_queue(const uin
 	for (uint_fast8_t i = 0;; ++i)
 	{
 		uint_fast32_t empty = UINT32_MAX;
+
 		while ((non_atomic_load(e) != empty) & non_atomic_load(should_continue))
+		{
 			CMTS_YIELD_CPU;
+		}
+		
 		CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+		{
 			conditionally_exit_thread();
+		}
+
 		CMTS_LIKELY_IF(e.load(std::memory_order_acquire) == empty)
+		{
 			CMTS_LIKELY_IF(e.compare_exchange_weak(empty, task_index, std::memory_order_release, std::memory_order_relaxed))
+			{
 				break;
+			}
+		}
 	}
 
 #ifdef CMTS_NO_BUSY_WAIT
@@ -717,15 +736,21 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 		for (uint_fast32_t i = 0; i != CMTS_MAX_PRIORITY; ++i)
 		{
 			CMTS_UNLIKELY_IF(!non_atomic_load(should_continue))
+			{
 				conditionally_exit_thread();
+			}
 
 			cmts_shared_queue_state& q = queues[i];
 
 			CMTS_LIKELY_IF(non_atomic_load(q.head) == non_atomic_load(q.tail))
+			{
 				continue;
+			}
 
 			CMTS_LIKELY_IF(get_queue_local_index(i) == UINT32_MAX)
+			{
 				set_queue_local_index(i, q.tail.fetch_add(1, std::memory_order_acquire));
+			}
 
 			std::atomic<uint32_t>& e = q.values[adjust_queue_index(get_queue_local_index(i))];
 
@@ -735,11 +760,13 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 			{
 				uint_fast32_t expected = e.load(std::memory_order_acquire);
 				CMTS_LIKELY_IF(expected != UINT32_MAX)
+				{
 					CMTS_LIKELY_IF(e.compare_exchange_weak(expected, UINT32_MAX, std::memory_order_release, std::memory_order_relaxed))
 					{
 						set_queue_local_index(i, UINT32_MAX);
 						return expected;
 					}
+				}
 				CMTS_YIELD_CPU;
 			}
 		}
@@ -1183,8 +1210,8 @@ extern "C"
 		should_continue.store(false, std::memory_order_release);
 
 #ifdef CMTS_NO_BUSY_WAIT
-		(void)scheduler_generation.fetch_add(1, std::memory_order_release);
-		WakeByAddressAll(&scheduler_generation);
+		(void)scheduler_generation.fetch_add(1, std::memory_order_acquire);
+		futex_signal(&scheduler_generation);
 #endif
 	}
 
@@ -1287,10 +1314,15 @@ extern "C"
 				const uint_fast32_t sync_generation = (uint_fast32_t)(options->sync_object >> 32);
 
 				uint_fast32_t generation;
+
 				if (e.sync_type == CMTS_SYNC_TYPE_FENCE)
+				{
 					generation = fence_pool_ptr[(uint32_t)e.sync_handle].ctrl.load(std::memory_order_acquire).generation;
+				}
 				else
+				{
 					generation = counter_pool_ptr[(uint32_t)e.sync_handle].ctrl.load(std::memory_order_acquire).generation;
+				}
 
 				CMTS_UNLIKELY_IF(sync_generation != generation)
 				{
