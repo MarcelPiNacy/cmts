@@ -152,6 +152,7 @@ enum : uint_fast32_t
 	CMTS_UINT24_MAX = (1U << 24U) - 1U,
 	CMTS_DEFAULT_TASK_STACK_SIZE = 1U << 16U,
 	CMTS_DEFAULT_THREAD_STACK_SIZE = 1U << 16U,
+	CMTS_GENERATION_MASK = (1U << 31U) - 1U
 };
 
 alignas(CMTS_FALSE_SHARING_THRESHOLD) static std::atomic<bool> is_paused;
@@ -1300,6 +1301,7 @@ extern "C"
 			return CMTS_DISPATCH_ERROR_TASK_POOL_LIMIT_REACHED;
 		task_state& e = task_pool_ptr[id];
 		++e.generation;
+		e.generation &= CMTS_GENERATION_MASK;
 		e.function = entry_point;
 		if (options != nullptr)
 		{
@@ -1370,7 +1372,7 @@ extern "C"
 		CMTS_ASSERT(index < max_tasks);
 		fence_state& e = fence_pool_ptr[index];
 		const fence_state::control_block c = non_atomic_load(e.ctrl);
-		const fence_state::control_block nc = { true, c.generation + 1U };
+		const fence_state::control_block nc = { true, (c.generation + 1U) & CMTS_GENERATION_MASK };
 		non_atomic_store(e.ctrl, nc);
 		return (cmts_fence_t)index | ((cmts_fence_t)nc.generation << 32);
 	}
@@ -1446,11 +1448,10 @@ extern "C"
 		CMTS_ASSERT(index < CMTS_MAX_TASKS);
 		CMTS_ASSERT(index < max_tasks);
 		counter_state& e = counter_pool_ptr[index];
-		counter_state::control_block c = non_atomic_load(e.ctrl);
-		const uint_fast32_t generation = c.counter;
-		c.counter = start_value;
-		non_atomic_store(e.ctrl, c);
-		return (cmts_counter_t)index | ((cmts_counter_t)generation << 32);
+		const counter_state::control_block c = non_atomic_load(e.ctrl);
+		const counter_state::control_block nc = { true, (c.generation + 1U) & CMTS_GENERATION_MASK };
+		non_atomic_store(e.ctrl, nc);
+		return (cmts_counter_t)index | ((cmts_counter_t)nc.generation << 32);
 	}
 
 	cmts_result_t CMTS_CALLING_CONVENTION cmts_is_counter_valid(cmts_counter_t counter)
