@@ -1,6 +1,6 @@
 # CMTS
 ## About
-CMTS is a C++14 header-only library with a C-compatible API that implements a lock-free scheduler for cooperative multitasking.
+CMTS is a C++14/17 header-only library with a C-compatible API that implements a lock-free scheduler for cooperative multitasking.
 ## Warning
 The library is work in progress. You should only use code from the release branch (and there's no release branch yet).
 #### Operating System
