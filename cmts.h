@@ -64,15 +64,12 @@
 #if __cplusplus < 201703L
 #define CMTS_FALSE_SHARING_THRESHOLD 64
 #else
-#if __cplusplus < 201703L
-#define CMTS_FALSE_SHARING_THRESHOLD 64
-#else
 #define CMTS_FALSE_SHARING_THRESHOLD std::hardware_destructive_interference_size
 #endif
 #endif
-#else
-#define CMTS_FALSE_SHARING_THRESHOLD 64
 #endif
+#ifndef CMTS_FALSE_SHARING_THRESHOLD
+#define CMTS_FALSE_SHARING_THRESHOLD 64
 #endif
 
 #if !defined(CMTS_NOTHROW) && defined(__cplusplus)

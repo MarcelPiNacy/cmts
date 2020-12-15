@@ -190,7 +190,7 @@ static_assert(queue_shift != 0, "std::hardware_destructive_interference_size was
 
 #ifdef CMTS_NO_BUSY_WAIT
 static decltype(WaitOnAddress)*				futex_await;
-static decltype(WakeByAddressSingle)*		futex_signal;
+static decltype(WakeByAddressAll)*			futex_signal;
 #endif
 
 static uint_fast32_t						task_stack_size;
@@ -599,12 +599,6 @@ CMTS_INLINE_ALWAYS static void CMTS_CALLING_CONVENTION shared_pool_release(std::
 	}
 }
 
-template <typename T>
-CMTS_INLINE_NEVER static void CMTS_CALLING_CONVENTION shared_pool_release_no_inline(std::atomic<pool_control_block>& ctrl, T* const elements, uint_fast32_t index) CMTS_NOTHROW
-{
-	::shared_pool_release<T>(ctrl, elements, index);
-}
-
 static task_state*																task_pool_ptr;
 static fence_state*																fence_pool_ptr;
 static counter_state*															counter_pool_ptr;
@@ -731,7 +725,7 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 	while (true)
 	{
 #ifdef CMTS_NO_BUSY_WAIT
-		uint32_t sg = scheduler_generation.load(std::memory_order_acquire);
+		uint32_t last_generation = scheduler_generation.load(std::memory_order_acquire);
 #endif
 
 		for (uint_fast32_t i = 0; i != CMTS_MAX_PRIORITY; ++i)
@@ -773,7 +767,7 @@ CMTS_INLINE_ALWAYS static uint_fast32_t CMTS_CALLING_CONVENTION fetch_from_queue
 		}
 
 #ifdef CMTS_NO_BUSY_WAIT
-		futex_await(&scheduler_generation, &sg, sizeof(scheduler_generation), INFINITE);
+		futex_await(&scheduler_generation, &last_generation, sizeof(last_generation), INFINITE);
 #endif
 	}
 }
@@ -881,7 +875,8 @@ static DWORD WINAPI thread_main(void* param) CMTS_NOTHROW
 			default:
 				CMTS_UNREACHABLE;
 			}
-			shared_pool_release_no_inline(task_pool_ctrl, task_pool_ptr, get_current_task());
+
+			shared_pool_release(task_pool_ctrl, task_pool_ptr, get_current_task());
 		}
 	}
 	CMTS_UNREACHABLE;
@@ -1138,7 +1133,7 @@ static bool CMTS_CALLING_CONVENTION enable_queue_futex() CMTS_NOTHROW
 	futex_await = (decltype(WaitOnAddress)*)GetProcAddress(hmodule, "WaitOnAddress");
 	CMTS_UNLIKELY_IF(futex_await == nullptr)
 		return false;
-	futex_signal = (decltype(WakeByAddressSingle)*)GetProcAddress(hmodule, "WakeByAddressSingle");
+	futex_signal = (decltype(WakeByAddressAll)*)GetProcAddress(hmodule, "WakeByAddressAll");
 	CMTS_UNLIKELY_IF(futex_signal == nullptr)
 		return false;
 	return true;
@@ -1209,7 +1204,6 @@ extern "C"
 	{
 		CMTS_ASSERT_IS_INITIALIZED;
 		should_continue.store(false, std::memory_order_release);
-
 #ifdef CMTS_NO_BUSY_WAIT
 		(void)scheduler_generation.fetch_add(1, std::memory_order_acquire);
 		futex_signal(&scheduler_generation);
