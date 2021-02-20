@@ -317,6 +317,11 @@ namespace os
 		}
 		return true;
 	}
+
+	CMTS_INLINE_ALWAYS static void yield_thread()
+	{
+		(void)SwitchToThread();
+	}
 }
 
 #else
@@ -873,8 +878,9 @@ return NIL_INDEX;
 
 CMTS_INLINE_ALWAYS static ufast32 acquire_task_blocking()
 {
+	void(*yield_fn)() = cmts_is_task() ? cmts_yield : os::yield_thread;
 	ufast32 r;
-	for (;; cmts_yield())
+	for (;; yield_fn())
 	{
 		for (ufast8 i = 0; i != CMTS_SPIN_THRESHOLD; ++i)
 		{
