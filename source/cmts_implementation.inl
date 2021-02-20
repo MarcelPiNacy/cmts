@@ -354,7 +354,6 @@ static uintptr task_stack_size;
 thread_local static HANDLE root_fiber;
 #endif
 
-thread_local static uint32 yield_counter;
 thread_local static uint32 this_task_index;
 thread_local static uint32 worker_thread_index;
 thread_local static ufast32 cached_indices[CMTS_MAX_PRIORITY];
@@ -718,8 +717,8 @@ CMTS_INLINE_ALWAYS static void submit_task(ufast32 task_index, ufast8 priority)
 		head = prior_head + 1;
 		if (head == queue.tail.load(std::memory_order_acquire)) // This shouldn't happen ever
 		{
-			CMTS_REPORT_WARNING("One of the worker thread's task queues has reached it's maximum capacity. This could be a sign of incorrect library usage.")
-				continue;
+			CMTS_REPORT_WARNING("One of the worker thread's task queues has reached it's maximum capacity. This could be a sign of incorrect library usage.");
+			continue;
 		}
 		if (queue.head.compare_exchange_weak(prior_head, head, std::memory_order_acquire, std::memory_order_relaxed))
 			break;
@@ -933,7 +932,6 @@ static os::thread_return_type CMTS_WORKER_THREAD_CALLING_CONVENTION worker_threa
 		SwitchToFiber(task.handle);
 		CMTS_INVARIANT(GetCurrentFiber() == root_fiber);
 #endif
-		++yield_counter;
 		CMTS_INVARIANT(index == this_task_index);
 		bool to_sleep = non_atomic_load(task.state) == task_state::GOING_TO_SLEEP;
 		if (to_sleep)
