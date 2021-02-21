@@ -81,8 +81,8 @@ typedef struct cmts_init_options_t
 {
 	cmts_allocate_function_pointer_t allocate_function;
 	size_t task_stack_size;
+	size_t thread_count;
 	cmts_init_flags_t flags;
-	uint32_t thread_count;
 	uint32_t max_tasks;
 	uint32_t enabled_extension_count;
 	const cmts_ext_type_t* enabled_extensions;

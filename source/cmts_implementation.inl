@@ -1124,7 +1124,7 @@ static cmts_result_t default_library_init()
 
 static cmts_result_t custom_library_init(const cmts_init_options_t& options)
 {
-	worker_thread_count = options.thread_count;
+	worker_thread_count = (uint32)options.thread_count;
 	max_tasks = options.max_tasks;
 	queue_capacity = (uint32)round_pow2(max_tasks / worker_thread_count);
 	queue_capacity_mask = queue_capacity - 1;
@@ -1529,9 +1529,10 @@ extern "C"
 	{
 		ufast32 index, generation;
 		split_handle(task_id, index, generation);
-		CMTS_INVARIANT(is_valid_task(index));
+		if (!is_valid_task(index))
+			return false;
 		task_data& task = task_pool[index];
-		CMTS_INVARIANT(task.generation == generation);
+		return task.generation == generation;
 	}
 
 	CMTS_ATTR cmts_bool_t CMTS_CALL cmts_task_is_sleeping(cmts_task_id_t task_id)
