@@ -1,3 +1,21 @@
+/*
+	Copyright 2021 Marcel Pi Nacy
+
+	Licensed under the Apache License, Version 2.0 (the "License");
+	you may not use this file except in compliance with the License.
+	You may obtain a copy of the License at
+
+		http://www.apache.org/licenses/LICENSE-2.0
+
+	Unless required by applicable law or agreed to in writing, software
+	distributed under the License is distributed on an "AS IS" BASIS,
+	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+	See the License for the specific language governing permissions and
+	limitations under the License.
+*/
+
+
+
 #ifndef CMTS_INCLUDED
 #define CMTS_INCLUDED
 #include <stdint.h>
@@ -36,16 +54,6 @@
 #endif
 #endif
 
-#ifndef CMTS_NORETURN
-#define CMTS_NORETURN
-#ifdef __cplusplus
-#if __has_cpp_attribute(noreturn)
-#undef CMTS_NORETURN
-#define CMTS_NORETURN [[noreturn]]
-#endif
-#endif
-#endif
-
 #ifndef CMTS_MAX_PRIORITY
 #define CMTS_MAX_PRIORITY 3
 #endif
@@ -63,15 +71,10 @@
 #endif
 
 #define CMTS_BARRIER_DATA_SIZE 4
-
 #define CMTS_EVENT_DATA_SIZE 16
-
 #define CMTS_COUNTER_DATA_SIZE 32
-
 #define CMTS_MUTEX_DATA_SIZE 8
-
 #define CMTS_RWLOCK_DATA_SIZE 32
-
 #define CMTS_RWLOCK_MAX_READERS ((1U << 31U) - 1U)
 
 #ifndef CMTS_CHAR
@@ -168,8 +171,8 @@ typedef struct cmts_init_options_t
 {
 	cmts_allocate_function_pointer_t allocate_function;
 	size_t task_stack_size;
+	size_t thread_count;
 	cmts_init_flags_t flags;
-	uint32_t thread_count;
 	uint32_t max_tasks;
 	uint32_t enabled_extension_count;
 	const cmts_ext_type_t* enabled_extensions;
@@ -217,9 +220,6 @@ typedef struct cmts_minimize_options_t
 	const void* ext;
 	uint64_t timeout_nanoseconds;
 } cmts_minimize_options_t;
-
-// EXTENSION-ONLY TYPES:
-// EXT - DEBUGGER TYPES:
 
 typedef enum cmts_ext_debugger_message_severity_t
 {
@@ -311,7 +311,6 @@ CMTS_ATTR cmts_bool_t CMTS_CALL cmts_mutex_try_lock(cmts_mutex_t* mutex);
 CMTS_ATTR void CMTS_CALL cmts_mutex_lock(cmts_mutex_t* mutex);
 CMTS_ATTR void CMTS_CALL cmts_mutex_unlock(cmts_mutex_t* mutex);
 
-/*
 CMTS_ATTR void CMTS_CALL cmts_rwlock_init(cmts_rwlock_t* rwlock);
 CMTS_ATTR cmts_bool_t CMTS_CALL cmts_rwlock_is_locked(const cmts_rwlock_t* rwlock);
 CMTS_ATTR cmts_bool_t CMTS_CALL cmts_rwlock_is_locked_exclusive(const cmts_rwlock_t* rwlock);
@@ -324,7 +323,6 @@ CMTS_ATTR void CMTS_CALL cmts_rwlock_lock_exclusive(cmts_rwlock_t* rwlock);
 CMTS_ATTR void CMTS_CALL cmts_rwlock_unlock_exclusive(cmts_rwlock_t* rwlock);
 CMTS_ATTR void CMTS_CALL cmts_rwlock_switch_to_exclusive(cmts_rwlock_t* rwlock);
 CMTS_ATTR void CMTS_CALL cmts_rwlock_switch_to_shared(cmts_rwlock_t* rwlock);
-*/
 
 CMTS_ATTR size_t CMTS_CALL cmts_this_worker_thread_index();
 CMTS_ATTR size_t CMTS_CALL cmts_processor_count();
@@ -344,6 +342,11 @@ CMTS_ATTR cmts_bool_t cmts_ext_task_name_enabled();
 
 CMTS_EXTERN_C_END
 
+
+
+
+
+
 #ifdef CMTS_IMPLEMENTATION
 #include <atomic>
 #include <cstdint>
@@ -358,6 +361,7 @@ using ufast16 = uint_fast16_t;
 using ufast32 = uint_fast32_t;
 using ufast64 = uint_fast64_t;
 using uintptr = size_t;
+
 #if UINTPTR_MAX == UINT32_MAX
 using ufastptr = ufast32;
 #else
@@ -416,6 +420,12 @@ using ufastptr = ufast64;
 #endif
 
 template <typename T>
+constexpr ufastptr array_size(T& array)
+{
+	return sizeof(array) / sizeof(array[0]);
+}
+
+template <typename T>
 static T non_atomic_load(const std::atomic<T>& from)
 {
 	if constexpr (std::atomic<T>::is_always_lock_free)
@@ -462,18 +472,40 @@ static void non_atomic_store(std::atomic<T>& where, U value)
 
 static constexpr ufastptr constexpr_log2(ufastptr value)
 {
-	switch (value)
+#if UINT32_MAX == UINTPTR_MAX
+	constexpr uint8_t lookup[] =
 	{
-	case 2:		return 1;
-	case 4:		return 2;
-	case 8:		return 3;
-	case 16:	return 4;
-	case 32:	return 5;
-	case 64:	return 6;
-	case 128:	return 7;
-	case 256:	return 8;
-	default:	return 0;
-	}
+		0, 9, 1, 10, 13, 21, 2, 29,
+		11, 14, 16, 18, 22, 25, 3, 30,
+		8, 12, 20, 28, 15, 17, 24, 7,
+		19, 27, 23, 6, 26, 5, 4, 31
+	};
+	value |= value >> 1;
+	value |= value >> 2;
+	value |= value >> 4;
+	value |= value >> 8;
+	value |= value >> 16;
+	return lookup[(uint32_t)(value * 0x07C4ACDD) >> 27];
+#else
+	constexpr uint8_t lookup[] =
+	{
+		63, 0, 58, 1, 59, 47, 53, 2,
+		60, 39, 48, 27, 54, 33, 42, 3,
+		61, 51, 37, 40, 49, 18, 28, 20,
+		55, 30, 34, 11, 43, 14, 22, 4,
+		62, 57, 46, 52, 38, 26, 32, 41,
+		50, 36, 17, 19, 29, 10, 13, 21,
+		56, 45, 25, 31, 35, 16, 9, 12,
+		44, 24, 15, 8, 23, 7, 6, 5
+	};
+	value |= value >> 1;
+	value |= value >> 2;
+	value |= value >> 4;
+	value |= value >> 8;
+	value |= value >> 16;
+	value |= value >> 32;
+	return lookup[((uint64_t)((value - (value >> 1)) * 0x07EDD5E59A4E28C2)) >> 58];
+#endif
 }
 
 static constexpr uint32 NIL_INDEX = UINT32_MAX;
@@ -491,12 +523,6 @@ namespace debugger
 	static void* context;
 	static cmts_ext_debugger_message_callback_t callback;
 
-	namespace detail
-	{
-		template <typename T>
-		constexpr ufastptr array_size(T& array) { return sizeof(array) / sizeof(array[0]); }
-	}
-
 	static void init(const cmts_ext_debugger_init_options_t& options)
 	{
 		context = options.context;
@@ -511,7 +537,7 @@ namespace debugger
 		cmts_ext_debugger_message_t message;
 		message.ext = nullptr;
 		message.message = text;
-		message.message_length = detail::array_size(text) - 1;
+		message.message_length = array_size(text) - 1;
 		message.severity = S;
 		callback(context, &message);
 	}
@@ -533,15 +559,12 @@ namespace debugger
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-
 #ifndef VC_EXTRALEAN
 #define VC_EXTRALEAN
 #endif
-
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-
 #include <Windows.h>
 
 #define CMTS_WORKER_TASK_CALLING_CONVENTION WINAPI
@@ -749,22 +772,13 @@ CMTS_INLINE_ALWAYS static void spin_while_neq(const std::atomic<T>& where, U val
 	std::atomic_thread_fence(std::memory_order_acquire);
 }
 
-CMTS_SHARED_ATTR static std::atomic<uint32> library_guard_ticket;
-CMTS_SHARED_ATTR static std::atomic<uint32> library_guard_grant;
-
-struct library_guard
-{
-	CMTS_INLINE_ALWAYS library_guard()
-	{
-		uint32 desired = library_guard_ticket.fetch_add(1, std::memory_order_acquire);
-		spin_while_neq(library_guard_grant, desired);
-	}
-
-	CMTS_INLINE_ALWAYS ~library_guard()
-	{
-		library_guard_grant.store(non_atomic_load(library_guard_grant) + 1, std::memory_order_release);
-	}
-};
+#ifdef CMTS_LOCK_LIBRARY
+#include <mutex>
+CMTS_SHARED_ATTR static std::mutex library_lock;
+#define CMTS_LIBRARY_GUARD std::scoped_lock guard(library_lock)
+#else
+#define CMTS_LIBRARY_GUARD
+#endif
 
 CMTS_SHARED_ATTR static std::atomic_bool library_exit_flag;
 CMTS_SHARED_ATTR static std::atomic_bool library_is_initialized;
@@ -1526,7 +1540,8 @@ static cmts_result_t default_library_init()
 
 static cmts_result_t custom_library_init(const cmts_init_options_t& options)
 {
-	worker_thread_count = options.thread_count;
+	CMTS_INVARIANT(options.thread_count <= UINT32_MAX);
+	worker_thread_count = (uint32_t)options.thread_count;
 	max_tasks = options.max_tasks;
 	queue_capacity = (uint32)round_pow2(max_tasks / worker_thread_count);
 	queue_capacity_mask = queue_capacity - 1;
@@ -1600,17 +1615,19 @@ extern "C"
 	{
 		cmts_result_t result;
 		CMTS_INVARIANT(!library_is_initialized.load(std::memory_order_acquire));
-		library_guard guard;
-		CMTS_UNLIKELY_IF(!os::initialize())
-			return CMTS_ERROR_OS_INIT;
-		if (options == nullptr)
-			result = default_library_init();
-		else
-			result = custom_library_init(*options);
-		CMTS_UNLIKELY_IF(result < 0)
-			return result;
-		non_atomic_store(library_exit_flag, false);
-		library_is_initialized.store(true, std::memory_order_release);
+		{
+			CMTS_LIBRARY_GUARD;
+			CMTS_UNLIKELY_IF(!os::initialize())
+				return CMTS_ERROR_OS_INIT;
+			if (options == nullptr)
+				result = default_library_init();
+			else
+				result = custom_library_init(*options);
+			CMTS_UNLIKELY_IF(result < 0)
+				return result;
+			non_atomic_store(library_exit_flag, false);
+			non_atomic_store(library_is_initialized, true);
+		}
 		return result;
 	}
 
@@ -1620,9 +1637,11 @@ extern "C"
 			return CMTS_OK;
 		CMTS_UNLIKELY_IF(!library_is_initialized.load(std::memory_order_acquire))
 			return CMTS_ERROR_LIBRARY_UNINITIALIZED;
-		library_guard guard;
-		CMTS_UNLIKELY_IF(!os::suspend_threads(worker_threads, worker_thread_count))
-			return CMTS_ERROR_SUSPEND_WORKER_THREAD;
+		{
+			CMTS_LIBRARY_GUARD;
+			CMTS_UNLIKELY_IF(!os::suspend_threads(worker_threads, worker_thread_count))
+				return CMTS_ERROR_SUSPEND_WORKER_THREAD;
+		}
 		return CMTS_OK;
 	}
 
@@ -1632,10 +1651,12 @@ extern "C"
 			return CMTS_OK;
 		CMTS_UNLIKELY_IF(!library_is_initialized.load(std::memory_order_acquire))
 			return CMTS_ERROR_LIBRARY_UNINITIALIZED;
-		library_guard guard;
-		CMTS_UNLIKELY_IF(!os::resume_threads(worker_threads, worker_thread_count))
-			return CMTS_ERROR_RESUME_WORKER_THREAD;
-		library_is_paused.store(false, std::memory_order_release);
+		{
+			CMTS_LIBRARY_GUARD;
+			CMTS_UNLIKELY_IF(!os::resume_threads(worker_threads, worker_thread_count))
+				return CMTS_ERROR_RESUME_WORKER_THREAD;
+			non_atomic_store(library_is_paused, false);
+		}
 		return CMTS_OK;
 	}
 
@@ -1650,49 +1671,52 @@ extern "C"
 
 	CMTS_ATTR cmts_result_t CMTS_CALL cmts_lib_exit_await(cmts_deallocate_function_pointer_t deallocate)
 	{
-		CMTS_UNLIKELY_IF(!library_is_initialized.load(std::memory_order_acquire))
+		CMTS_UNLIKELY_IF(!library_is_initialized.exchange(false, std::memory_order_acquire))
 			return CMTS_ERROR_LIBRARY_UNINITIALIZED;
 		CMTS_UNLIKELY_IF(!os::await_threads(worker_threads, worker_thread_count))
 			return CMTS_ERROR_AWAIT_WORKER_THREAD;
-		library_guard guard;
-		for (ufast32 i = 0; i != non_atomic_load(task_pool_header.bump); ++i)
 		{
-			task_data& task = task_pool[i];
-#ifdef CMTS_DEBUG
-			CMTS_LIKELY_IF(task.handle != nullptr)
+			CMTS_LIBRARY_GUARD;
+			for (ufast32 i = 0; i != non_atomic_load(task_pool_header.bump); ++i)
 			{
-				DeleteFiber(task.handle);
-				task.handle = nullptr;
-			}
+				task_data& task = task_pool[i];
+#ifdef CMTS_DEBUG
+				CMTS_LIKELY_IF(task.handle != nullptr)
+				{
+					DeleteFiber(task.handle);
+					task.handle = nullptr;
+				}
 #endif
+			}
+			ufastptr buffer_size = required_library_buffer_size();
+			bool flag = deallocate != nullptr ?
+				deallocate(worker_threads, buffer_size) :
+				os::deallocate(worker_threads, buffer_size);
+			CMTS_UNLIKELY_IF(!flag)
+				return CMTS_ERROR_MEMORY_DEALLOCATION;
 		}
-		ufastptr buffer_size = required_library_buffer_size();
-		bool flag;
-		if (deallocate != nullptr)
-			flag = deallocate(worker_threads, buffer_size);
-		else
-			flag = os::deallocate(worker_threads, buffer_size);
-		CMTS_UNLIKELY_IF(!flag)
-			return CMTS_ERROR_MEMORY_DEALLOCATION;
-		library_is_initialized.store(false, std::memory_order_release);
 		return CMTS_OK;
 	}
 
 	CMTS_ATTR cmts_result_t CMTS_CALL cmts_lib_terminate(cmts_deallocate_function_pointer_t deallocate)
 	{
 		cmts_lib_exit_signal();
-		library_guard guard;
-		CMTS_UNLIKELY_IF(!os::terminate_threads(worker_threads, worker_thread_count))
-			return CMTS_ERROR_WORKER_THREAD_TERMINATION;
-		ufastptr buffer_size = required_library_buffer_size();
-		bool flag;
-		if (deallocate != nullptr)
-			flag = deallocate(worker_threads, buffer_size);
-		else
-			flag = os::deallocate(worker_threads, buffer_size);
-		CMTS_UNLIKELY_IF(!flag)
-			return CMTS_ERROR_MEMORY_DEALLOCATION;
-		library_is_initialized.store(false, std::memory_order_release);
+		CMTS_UNLIKELY_IF(!library_is_initialized.exchange(false, std::memory_order_acquire))
+			return CMTS_ERROR_LIBRARY_UNINITIALIZED;
+		{
+			CMTS_LIBRARY_GUARD;
+			CMTS_UNLIKELY_IF(!os::terminate_threads(worker_threads, worker_thread_count))
+				return CMTS_ERROR_WORKER_THREAD_TERMINATION;
+			ufastptr buffer_size = required_library_buffer_size();
+			bool flag;
+			if (deallocate != nullptr)
+				flag = deallocate(worker_threads, buffer_size);
+			else
+				flag = os::deallocate(worker_threads, buffer_size);
+			CMTS_UNLIKELY_IF(!flag)
+				return CMTS_ERROR_MEMORY_DEALLOCATION;
+			worker_threads = nullptr;
+		}
 		return CMTS_OK;
 	}
 
@@ -2225,86 +2249,57 @@ extern "C"
 
 	CMTS_ATTR cmts_bool_t CMTS_CALL cmts_rwlock_is_locked(const cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
-		non_atomic_store(rwlock.ctrl, { false, 0 });
-		non_atomic_store(rwlock.read_head, NIL_INDEX);
-		non_atomic_store(rwlock.read_tail, NIL_INDEX);
-		non_atomic_store(rwlock.write_head, NIL_INDEX);
-		non_atomic_store(rwlock.write_tail, NIL_INDEX);
+		abort();
 	}
 
 	CMTS_ATTR cmts_bool_t CMTS_CALL cmts_rwlock_is_locked_exclusive(const cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
-		return rwlock.ctrl.load(std::memory_order_acquire).is_writing;
+		abort();
 	}
 
 	CMTS_ATTR size_t CMTS_CALL cmts_rwlock_shared_count(const cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
-		return rwlock.ctrl.load(std::memory_order_acquire).reader_count;
+		abort();
 	}
 
 	CMTS_ATTR cmts_bool_t CMTS_CALL cmts_rwlock_try_lock(cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
+		abort();
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_rwlock_lock(cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
+		abort();
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_rwlock_unlock(cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
+		abort();
 	}
 
 	CMTS_ATTR cmts_bool_t CMTS_CALL cmts_rwlock_try_lock_exclusive(cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
+		abort();
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_rwlock_lock_exclusive(cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
+		abort();
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_rwlock_unlock_exclusive(cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
+		abort();
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_rwlock_switch_to_exclusive(cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
+		abort();
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_rwlock_switch_to_shared(cmts_rwlock_t* rwlock_ptr)
 	{
-		CMTS_INVARIANT(cmts_is_task());
-		CMTS_INVARIANT(rwlock_ptr != nullptr);
-		rwlock_data& rwlock = *(rwlock_data*)rwlock_ptr;
+		abort();
 	}
 
 	CMTS_ATTR size_t CMTS_CALL cmts_this_worker_thread_index()
