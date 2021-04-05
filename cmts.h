@@ -21,6 +21,7 @@
 
 #ifdef _WIN32
 #define CMTS_WINDOWS
+#define CMTS_REQUIRES_TASK_ALLOCATOR 0
 #else
 #error "CMTS: UNSUPPORTED OPERATING SYSTEM."
 #endif
@@ -252,7 +253,8 @@ CMTS_ATTR cmts_bool_t CMTS_CALL cmts_is_paused();
 CMTS_ATTR uint32_t CMTS_CALL cmts_purge(uint32_t max_trimmed_tasks, cmts_deallocate_function_pointer_t deallocate);
 CMTS_ATTR uint32_t CMTS_CALL cmts_purge_all(cmts_deallocate_function_pointer_t deallocate);
 CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_count();
-CMTS_ATTR cmts_bool_t CMTS_CALL cmts_requires_allocator();
+CMTS_ATTR cmts_bool_t CMTS_CALL cmts_requires_task_allocator();
+CMTS_ATTR void CMTS_CALL cmts_assign_task_allocator(cmts_allocate_function_pointer_t allocate, cmts_deallocate_function_pointer_t deallocate);
 
 CMTS_ATTR cmts_result_t CMTS_CALL cmts_dispatch(cmts_task_function_pointer_t entry_point, cmts_dispatch_options_t* options);
 CMTS_ATTR void CMTS_CALL cmts_yield();
@@ -679,6 +681,11 @@ CMTS_SHARED_ATTR static std::mutex library_lock;
 #define CMTS_LIBRARY_GUARD std::scoped_lock guard(library_lock)
 #else
 #define CMTS_LIBRARY_GUARD
+#endif
+
+#if CMTS_REQUIRES_TASK_ALLOCATOR
+static cmts_allocate_function_pointer_t task_allocate_function;
+static cmts_deallocate_function_pointer_t task_deallocate_function;
 #endif
 
 CMTS_SHARED_ATTR static std::atomic_bool library_exit_flag;
@@ -1622,6 +1629,26 @@ extern "C"
 		return n;
 	}
 
+	CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_count()
+	{
+		return worker_thread_count;
+	}
+
+	CMTS_ATTR cmts_bool_t CMTS_CALL cmts_requires_task_allocator()
+	{
+		return CMTS_REQUIRES_TASK_ALLOCATOR;
+	}
+
+	CMTS_ATTR void CMTS_CALL cmts_assign_task_allocator(cmts_allocate_function_pointer_t allocate, cmts_deallocate_function_pointer_t deallocate)
+	{
+#if CMTS_REQUIRES_TASK_ALLOCATOR
+		task_allocate_function = allocate;
+		task_deallocate_function = deallocate;
+#else
+		CMTS_REPORT_WARNING("Invoked cmts_assign_task_allocator, but the current platform doesn't allow custom task stack allocation.");
+#endif
+	}
+
 	CMTS_ATTR cmts_result_t CMTS_CALL cmts_dispatch(cmts_task_function_pointer_t entry_point, cmts_dispatch_options_t* options)
 	{
 		CMTS_UNLIKELY_IF(options == nullptr)
@@ -2076,18 +2103,6 @@ extern "C"
 		CMTS_INVARIANT(cmts_is_task());
 		CMTS_INVARIANT(worker_thread_index < worker_thread_count);
 		return worker_thread_index;
-	}
-
-	CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_count()
-	{
-		return worker_thread_count;
-	}
-
-	CMTS_ATTR cmts_bool_t CMTS_CALL cmts_requires_allocator()
-	{
-#ifdef CMTS_WINDOWS
-		return false;
-#endif
 	}
 
 	CMTS_ATTR uint32_t CMTS_CALL cmts_processor_count()
