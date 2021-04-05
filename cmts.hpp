@@ -125,30 +125,25 @@ namespace cmts
 
 	namespace sync
 	{
-		struct barrier : cmts_barrier_t
+		struct fence : cmts_fence_t
 		{
-			inline barrier()
+			inline fence()
 			{
-				cmts_barrier_init((cmts_barrier_t*)this);
+				cmts_fence_init((cmts_fence_t*)this);
 			}
 
-			barrier(const barrier&) = delete;
-			barrier& operator=(const barrier&) = delete;
-			~barrier() = default;
-
-			inline void reset()
-			{
-				cmts_barrier_reset((cmts_barrier_t*)this);
-			}
+			fence(const fence&) = delete;
+			fence& operator=(const fence&) = delete;
+			~fence() = default;
 
 			inline void await()
 			{
-				cmts_barrier_await((cmts_barrier_t*)this);
+				cmts_fence_await((cmts_fence_t*)this);
 			}
 
 			inline void signal()
 			{
-				cmts_barrier_signal((cmts_barrier_t*)this);
+				cmts_fence_signal((cmts_fence_t*)this);
 			}
 		};
 
@@ -202,7 +197,7 @@ namespace cmts
 
 			inline size_t value() const
 			{
-				return cmts_counter_query((const cmts_counter_t*)this);
+				return cmts_counter_value((const cmts_counter_t*)this);
 			}
 
 			inline void operator++(int unused)
@@ -258,7 +253,6 @@ namespace cmts
 			}
 		};
 
-/*
 		struct rwlock
 		{
 			inline rwlock()
@@ -325,7 +319,6 @@ namespace cmts
 				cmts_rwlock_switch_to_shared((cmts_rwlock_t*)this);
 			}
 		};
-*/
 	}
 
 
