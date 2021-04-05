@@ -21,7 +21,8 @@ int main(int argc, char** argv)
 #include <cmts.h>
 ```
 ## Overview
-CMTS is a standalone C++ 17 cooperative task scheduler with a C API, based on Christian Gyrling's 2015 GDC talk.
+CMTS is a standalone C++ 17 cooperative task scheduler with a C API*, based on Christian Gyrling's 2015 GDC talk.  
+<sub>*A C++ API is included separately.</sub>
 ### Quick Setup
 ##### Including the source code
 CMTS is a header-only library, so you don't have to compile+include+link CMTS. `cmts.h` itself contains the source code `#ifdef`'d behind the flag `CMTS_IMPLEMENTATION`:
@@ -51,15 +52,15 @@ CMTS implements the following synchronization objects:
 - Fences
 - Events
 - Counters
-###### Mutexes  (`cmts_mutex_t`)
+###### Mutexes  (`cmts_mutex_t`, `cmts::sync::mutex`)
 Just a plain old mutex. However, like all other CMTS synchronization primitives, they can only be used within a task (with some minor exceptions).
-###### Fences (`cmts_fence_t`)
+###### Fences (`cmts_fence_t`, `cmts::sync::fence`)
 Fences are the most lightweight primitive in the library.
 Their use cases are limited in comparisson to events and counters, since they are essentially a container for a single sleeping task.
 Fences are useful mainly when implementing parallel for-loops.
-###### Events (`cmts_event_t`)
+###### Events (`cmts_event_t`, `cmts::sync::event`)
 Events allow for 1 or more tasks to wait until a condition holds true.
 Like condition variables, events are conceptually a queue (or list) of sleeping tasks.
 Events can be attached to a task, which will signal the event once it runs to completion.
-###### Counters (`cmts_counter_t`)
+###### Counters (`cmts_counter_t`, `cmts::sync::counter`)
 Like events, counters hold tasks that are waiting for a particular condition, in this case the counter's value reaching zero. Counters can also be attached to tasks.
