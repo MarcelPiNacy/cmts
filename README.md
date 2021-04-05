@@ -56,7 +56,7 @@ CMTS implements the following synchronization objects:
 Just a plain old mutex. However, like all other CMTS synchronization primitives, they can only be used within a task (with some minor exceptions).
 ###### Fences (`cmts_fence_t`, `cmts::sync::fence`)
 Fences are the most lightweight primitive in the library.
-Their use cases are limited in comparisson to events and counters, since they are essentially a container for a single sleeping task.
+Their use cases are limited in comparison to events and counters, since they are essentially a container for a single sleeping task.
 Fences are useful mainly when implementing parallel for-loops.
 ###### Events (`cmts_event_t`, `cmts::sync::event`)
 Events allow for 1 or more tasks to wait until a condition holds true.
