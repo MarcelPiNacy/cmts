@@ -22,7 +22,7 @@ int main(int argc, char** argv)
 ```
 ## Overview
 CMTS is a standalone C++ 17 cooperative task scheduler with a C API*, based on Christian Gyrling's 2015 GDC talk.  
-<sub>*A C++ API is included separately.</sub>
+<sub>_* A C++ API is included separately._</sub>
 ### Quick Setup
 ##### Including the source code
 CMTS is a header-only library, so you don't have to compile+include+link CMTS. `cmts.h` itself contains the source code `#ifdef`'d behind the flag `CMTS_IMPLEMENTATION`:
