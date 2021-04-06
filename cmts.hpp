@@ -20,9 +20,11 @@
 #define CMTS_CPP_INCLUDED
 
 #include "cmts.h"
-#include <algorithm>
 #include <iterator>
 #include <string_view>
+#ifdef CMTS_DEBUG
+#include <cassert>
+#endif
 
 namespace cmts
 {
@@ -278,78 +280,76 @@ namespace cmts
 
 
 
-	namespace lib
+	inline result init() noexcept
 	{
-		inline result init() noexcept
-		{
-			return (result)cmts_init(nullptr);
-		}
+		return (result)cmts_init(nullptr);
+	}
 
-		inline result init(const init_options& options) noexcept
-		{
-			return (result)cmts_init((cmts_init_options_t)&options);
-		}
+	inline result init(const init_options& options) noexcept
+	{
+		return (result)cmts_init((cmts_init_options_t)&options);
+	}
 
-		inline result pause() noexcept
-		{
-			return (result)cmts_pause();
-		}
+	inline result pause() noexcept
+	{
+		return (result)cmts_pause();
+	}
 
-		inline result resume() noexcept
-		{
-			return (result)cmts_resume();
-		}
+	inline result resume() noexcept
+	{
+		return (result)cmts_resume();
+	}
 
-		inline result exit_signal() noexcept
-		{
-			return (result)cmts_finalize_signal();
-		}
+	inline result exit_signal() noexcept
+	{
+		return (result)cmts_finalize_signal();
+	}
 
-		inline result exit_await() noexcept
-		{
-			return (result)cmts_finalize_await();
-		}
+	inline result exit_await() noexcept
+	{
+		return (result)cmts_finalize_await();
+	}
 
-		inline result terminate() noexcept
-		{
-			return (result)cmts_terminate();
-		}
+	inline result terminate() noexcept
+	{
+		return (result)cmts_terminate();
+	}
 
-		inline bool is_initialized() noexcept
-		{
-			return cmts_is_initialized();
-		}
+	inline bool is_initialized() noexcept
+	{
+		return cmts_is_initialized();
+	}
 
-		inline bool is_online() noexcept
-		{
-			return cmts_is_online();
-		}
+	inline bool is_online() noexcept
+	{
+		return cmts_is_online();
+	}
 
-		inline bool is_paused()
-		{
-			return cmts_is_paused();
-		}
+	inline bool is_paused()
+	{
+		return cmts_is_paused();
+	}
 
-		inline result purge(uint32_t max_trimmed_tasks, deallocate_function_pointer deallocate)
-		{
-			return (result)cmts_purge(max_trimmed_tasks, deallocate);
-		}
+	inline result purge(uint32_t max_trimmed_tasks, deallocate_function_pointer deallocate)
+	{
+		return (result)cmts_purge(max_trimmed_tasks, deallocate);
+	}
 
-		inline result purge_all()
-		{
-			return (result)cmts_purge_all();
-		}
+	inline result purge_all()
+	{
+		return (result)cmts_purge_all();
+	}
 
-		inline uint32_t worker_thread_count()
-		{
-			return cmts_worker_thread_count();
-		}
+	inline uint32_t worker_thread_count()
+	{
+		return cmts_worker_thread_count();
 	}
 
 
 
 	namespace task
 	{
+		[[nodiscard]]
 		inline task_id allocate()
 		{
 			return (task_id)cmts_task_allocate();
@@ -560,6 +560,113 @@ namespace cmts
 				cmts_ext_task_name_swap(id, name.data(), name.size(), &prior_ptr, &prior_size);
 				return string_view_type(prior_ptr, prior_size);
 			}
+		}
+	}
+
+	namespace util
+	{
+		template <typename I, typename F>
+		void parallel_for(I begin, I end, F&& body, uint8_t priority = 0)
+		{
+#ifdef CMTS_DEBUG
+			assert(is_task());
+#endif
+
+			if (begin == end)
+				return;
+
+			struct loop_state
+			{
+				F function;
+				I iterator;
+				sync::fence fence;
+			};
+
+			loop_state state = { ::std::forward<F>(body), begin };
+
+			uint32_t delta;
+			if constexpr (std::is_integral_v<I>)
+				delta = end - begin;
+			else
+				delta = std::distance(begin, end);
+
+#ifdef CMTS_DEBUG
+			assert(delta <= UINT32_MAX);
+#endif
+
+			auto counter = sync::counter(delta);
+
+			dispatch_options options = {};
+			options.flags = dispatch_flags::FORCE;
+			options.sync_object_type = sync_type::COUNTER;
+			options.sync_object = &counter;
+			options.priority = priority;
+
+			for (; state.iterator != end; ++state.iterator)
+			{
+				state.fence = {};
+				dispatch([&](void* param)
+				{
+					loop_state& state = *(loop_state*)param;
+					I it = state.iterator;
+					state.fence.signal();
+					state.function(it);
+				}, options);
+				state.fence.await();
+			}
+			counter.await();
+		}
+
+		template <typename I, typename K, typename F>
+		void parallel_for(I begin, I end, K step, F&& body, uint8_t priority = 0)
+		{
+#ifdef CMTS_DEBUG
+			assert(is_task());
+#endif
+
+			if (begin == end)
+				return;
+
+			struct loop_state
+			{
+				F function;
+				I iterator;
+				sync::fence fence;
+			};
+
+			loop_state state = { ::std::forward<F>(body), begin };
+
+			uint32_t delta;
+			if constexpr (std::is_integral_v<I>)
+				delta = end - begin;
+			else
+				delta = std::distance(begin, end);
+
+#ifdef CMTS_DEBUG
+			assert(delta <= UINT32_MAX);
+#endif
+
+			auto counter = sync::counter(delta);
+
+			dispatch_options options = {};
+			options.flags = dispatch_flags::FORCE;
+			options.sync_object_type = sync_type::COUNTER;
+			options.sync_object = &counter;
+			options.priority = priority;
+
+			for (; state.iterator != end; state.iterator += step)
+			{
+				state.fence = {};
+				dispatch([&](void* param)
+				{
+					loop_state& state = *(loop_state*)param;
+					I it = state.iterator;
+					state.fence.signal();
+					state.function(it);
+				}, options);
+				state.fence.await();
+			}
+			counter.await();
 		}
 	}
 }
