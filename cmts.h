@@ -675,7 +675,7 @@ CMTS_NAMESPACE_BEGIN
 {
 	(void)os::suspend_threads(worker_threads, worker_thread_count);
 	char buffer[4096];
-	(void)sprintf(buffer, "CMTS: Assertion failed! Expression: \"%s\"", expression);
+	(void)sprintf_s(buffer, "CMTS: Assertion failed! Expression: \"%s\"", expression);
 	CMTS_REPORT_ERROR(buffer);
 	abort();
 }
