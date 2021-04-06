@@ -112,7 +112,6 @@ typedef _Bool cmts_boolean_t;
 #endif
 
 typedef uint64_t cmts_task_id_t;
-typedef uint32_t cmts_task_local_id_t;
 
 typedef void(CMTS_PTR* cmts_task_function_pointer_t)(void* parameter);
 typedef void* (CMTS_PTR* cmts_allocate_function_pointer_t)(size_t size);
