@@ -1558,7 +1558,6 @@ extern "C"
 		{
 			CMTS_LIBRARY_GUARD;
 			ufast32 n = non_atomic_load(task_pool_header.bump);
-			CMTS_INVARIANT(n != 0);
 			for (ufast32 i = 0; i != n; ++i)
 			{
 				task_data& task = task_pool[i];
