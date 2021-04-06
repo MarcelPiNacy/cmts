@@ -42,6 +42,7 @@ namespace cmts
 		OK = 0,
 		SYNC_OBJECT_EXPIRED = 1,
 		NOT_READY = 2,
+		TIMEOUT = 3,
 
 		ERROR_MEMORY_ALLOCATION = -1,
 		ERROR_MEMORY_DEALLOCATION = -2,
@@ -58,8 +59,8 @@ namespace cmts
 		ERROR_LIBRARY_UNINITIALIZED = -13,
 		ERROR_OS_INIT = -14,
 
-		MIN_ENUM = ERROR_LIBRARY_UNINITIALIZED,
-		MAX_ENUM = NOT_READY,
+		RESULT_MIN_ENUM = ERROR_LIBRARY_UNINITIALIZED,
+		RESULT_MAX_ENUM = NOT_READY,
 	};
 
 	enum class sync_type : uint8_t
@@ -92,14 +93,13 @@ namespace cmts
 	};
 
 	enum class task_id : cmts_task_id_t {};
-	enum class tss_id : cmts_tss_id_t {};
 
 	struct init_options
 	{
 		allocate_function_pointer allocate_function;
 		size_t task_stack_size;
-		init_flags flags;
 		uint32_t thread_count;
+		init_flags flags;
 		uint32_t max_tasks;
 		uint32_t enabled_extension_count;
 		const extension_type* enabled_extensions;
@@ -112,7 +112,7 @@ namespace cmts
 		task_id* out_task_id;
 		void* parameter;
 		void* sync_object;
-		sync_type sync_type;
+		sync_type sync_object_type;
 		uint8_t priority;
 		const void* ext;
 	};
@@ -127,7 +127,7 @@ namespace cmts
 	{
 		struct fence : cmts_fence_t
 		{
-			inline fence()
+			inline fence() noexcept
 			{
 				cmts_fence_init((cmts_fence_t*)this);
 			}
@@ -136,12 +136,12 @@ namespace cmts
 			fence& operator=(const fence&) = delete;
 			~fence() = default;
 
-			inline void await()
+			inline void await() noexcept
 			{
 				cmts_fence_await((cmts_fence_t*)this);
 			}
 
-			inline void signal()
+			inline void signal() noexcept
 			{
 				cmts_fence_signal((cmts_fence_t*)this);
 			}
@@ -149,7 +149,7 @@ namespace cmts
 
 		struct event : cmts_event_t
 		{
-			inline event()
+			inline event() noexcept
 			{
 				cmts_event_init((cmts_event_t*)this);
 			}
@@ -158,17 +158,17 @@ namespace cmts
 			event& operator=(const event&) = delete;
 			~event() = default;
 
-			inline result reset()
+			inline result reset() noexcept
 			{
 				return (result)cmts_event_reset((cmts_event_t*)this);
 			}
 
-			inline result await()
+			inline result await() noexcept
 			{
 				return (result)cmts_event_await((cmts_event_t*)this);
 			}
 
-			inline void signal()
+			inline void signal() noexcept
 			{
 				return (result)cmts_event_signal((cmts_event_t*)this);
 			}
@@ -176,7 +176,7 @@ namespace cmts
 
 		struct counter : cmts_counter_t
 		{
-			inline counter(size_t value)
+			inline counter(uint32_t value) noexcept
 			{
 				cmts_counter_init((cmts_counter_t*)this, value);
 			}
@@ -185,45 +185,45 @@ namespace cmts
 			counter& operator=(const counter&) = delete;
 			~counter() = default;
 
-			inline result reset(size_t new_value)
+			inline result reset(uint32_t new_value) noexcept
 			{
-				return (result)cmts_counter_reset((cmts_counter_t*)this, value);
+				return (result)cmts_counter_reset((cmts_counter_t*)this, new_value);
 			}
 
-			inline result await()
+			inline result await() noexcept
 			{
 				return (result)cmts_counter_await((cmts_counter_t*)this);
 			}
 
-			inline size_t value() const
+			inline uint32_t value() const noexcept
 			{
 				return cmts_counter_value((const cmts_counter_t*)this);
 			}
 
-			inline void operator++(int unused)
+			inline void operator++(int unused) noexcept
 			{
 				return (result)cmts_counter_increment((cmts_counter_t*)this);
 			}
 
-			inline void operator++()
+			inline void operator++() noexcept
 			{
 				return (result)cmts_counter_increment((cmts_counter_t*)this);
 			}
 
-			inline void operator--(int unused)
+			inline void operator--(int unused) noexcept
 			{
 				return (result)cmts_counter_decrement((cmts_counter_t*)this);
 			}
 
-			inline void operator--()
+			inline void operator--() noexcept
 			{
 				return (result)cmts_counter_decrement((cmts_counter_t*)this);
 			}
 		};
 
-		struct mutex
+		struct mutex : cmts_mutex_t
 		{
-			inline mutex()
+			inline mutex() noexcept
 			{
 				cmts_mutex_init((cmts_mutex_t*)this);
 			}
@@ -232,22 +232,22 @@ namespace cmts
 			mutex& operator=(const mutex&) = delete;
 			~mutex() = default;
 
-			inline bool is_locked() const
+			inline bool is_locked() const noexcept
 			{
 				return cmts_mutex_is_locked((const cmts_mutex_t*)this);
 			}
 
-			inline bool try_lock()
+			inline bool try_lock() noexcept
 			{
 				return cmts_mutex_try_lock((cmts_mutex_t*)this);
 			}
 
-			inline void lock()
+			inline void lock() noexcept
 			{
 				cmts_mutex_lock((cmts_mutex_t*)this);
 			}
 
-			inline void unlock()
+			inline void unlock() noexcept
 			{
 				cmts_mutex_unlock((cmts_mutex_t*)this);
 			}
@@ -256,22 +256,22 @@ namespace cmts
 
 
 
-	inline result dispatch(void(*function)())
+	inline result dispatch(void(*function)()) noexcept
 	{
 		return (result)cmts_dispatch((task_function_pointer)function, nullptr);
 	}
 
-	inline result dispatch(task_function_pointer function)
+	inline result dispatch(task_function_pointer function) noexcept
 	{
 		return (result)cmts_dispatch(function, nullptr);
 	}
 
-	inline result dispatch(task_function_pointer function, const dispatch_options& options)
+	inline result dispatch(task_function_pointer function, const dispatch_options& options) noexcept
 	{
 		return (result)cmts_dispatch(function, &options);
 	}
 
-	inline bool is_task()
+	inline bool is_task() noexcept
 	{
 		return cmts_is_task();
 	}
@@ -280,69 +280,69 @@ namespace cmts
 
 	namespace lib
 	{
-		inline result init()
+		inline result init() noexcept
 		{
-			return (result)cmts_lib_init(nullptr);
+			return (result)cmts_init(nullptr);
 		}
 
-		inline result init(const init_options& options)
+		inline result init(const init_options& options) noexcept
 		{
-			return (result)cmts_lib_init((cmts_init_options_t)&options);
+			return (result)cmts_init((cmts_init_options_t)&options);
 		}
 
-		inline result pause()
+		inline result pause() noexcept
 		{
-			return (result)cmts_lib_pause();
+			return (result)cmts_pause();
 		}
 
-		inline result resume()
+		inline result resume() noexcept
 		{
-			return (result)cmts_lib_resume();
+			return (result)cmts_resume();
 		}
 
-		inline result exit_signal()
+		inline result exit_signal() noexcept
 		{
-			return (result)cmts_lib_exit_signal();
+			return (result)cmts_finalize_signal();
 		}
 
-		inline result exit_await()
+		inline result exit_await() noexcept
 		{
-			return (result)cmts_lib_exit_await();
+			return (result)cmts_finalize_await();
 		}
 
-		inline result terminate()
+		inline result terminate() noexcept
 		{
-			return (result)cmts_lib_terminate();
+			return (result)cmts_terminate();
 		}
 
-		inline bool is_initialized()
+		inline bool is_initialized() noexcept
 		{
-			return (result)cmts_lib_is_initialized();
+			return cmts_is_initialized();
 		}
 
-		inline bool is_online()
+		inline bool is_online() noexcept
 		{
-			return (result)cmts_lib_is_online();
+			return cmts_is_online();
 		}
 
 		inline bool is_paused()
 		{
-			return (result)cmts_lib_is_paused();
+			return cmts_is_paused();
 		}
 
-		inline result minimize()
+		inline result purge(uint32_t max_trimmed_tasks, deallocate_function_pointer deallocate)
 		{
-			return (result)cmts_lib_minimize(nullptr);
+			return (result)cmts_purge(max_trimmed_tasks, deallocate);
 		}
 
-		inline result minimize(const minimize_options& options)
+		inline result purge_all()
 		{
-			return (result)cmts_lib_minimize((const cmts_minimize_options_t*)&options);
+			return (result)cmts_purge_all();
 		}
 
-		inline size_t worker_thread_count()
+		inline uint32_t worker_thread_count()
 		{
-			return (result)cmts_lib_worker_thread_count();
+			return cmts_worker_thread_count();
 		}
 	}
 
@@ -453,36 +453,9 @@ namespace cmts
 
 
 
-	namespace task_local
-	{
-		inline tss_id create(destructor_function_pointer destructor = nullptr)
-		{
-			return (tss_id)cmts_tss_new(destructor);
-		}
-
-		template <typename T>
-		inline T* get(tss_id id)
-		{
-			return *(T*)cmts_tss_get((cmts_tss_id_t)id);
-		}
-
-		template <typename T>
-		inline void set(tss_id id, T* value)
-		{
-			return *(T*)cmts_tss_set((cmts_tss_id_t)id, (void*)value);
-		}
-
-		void destroy(tss_id id)
-		{
-			cmts_tss_delete(id);
-		}
-	}
-
-
-
 	namespace this_thread
 	{
-		inline size_t index()
+		inline uint32_t index()
 		{
 			return cmts_this_worker_thread_index();
 		}
@@ -502,17 +475,17 @@ namespace cmts
 
 	namespace platform
 	{
-		inline size_t processor_count()
+		inline uint32_t processor_count()
 		{
 			return cmts_processor_count();
 		}
 
-		inline size_t this_processor_index()
+		inline uint32_t this_processor_index()
 		{
 			return cmts_this_processor_index();
 		}
 
-		inline size_t default_task_stack_size()
+		inline uint32_t default_task_stack_size()
 		{
 			return cmts_default_task_stack_size();
 		}

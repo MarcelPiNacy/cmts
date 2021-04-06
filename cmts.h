@@ -210,6 +210,14 @@ typedef struct cmts_memory_requirements_t
 	size_t alignment;
 } cmts_memory_requirements_t;
 
+typedef struct cmts_ext_debugger_init_options_t
+{
+	const void* next;
+	cmts_ext_type_t ext_type; // Must be CMTS_EXT_TYPE_DEBUGGER.
+	void* context;
+	cmts_ext_debugger_message_callback_t message_callback;
+} cmts_ext_debugger_init_options_t;
+
 typedef enum cmts_ext_debugger_message_severity_t
 {
 	CMTS_EXT_DEBUGGER_MESSAGE_SEVERITY_INFO,
@@ -232,14 +240,6 @@ typedef struct cmts_ext_task_name_init_options_t
 	const void* next;
 	cmts_ext_type_t ext_type; // Must be CMTS_EXT_TYPE_TASK_NAME.
 } cmts_ext_task_name_init_options_t;
-
-typedef struct cmts_ext_debugger_init_options_t
-{
-	const void* next;
-	cmts_ext_type_t ext_type; // Must be CMTS_EXT_TYPE_DEBUGGER.
-	void* context;
-	cmts_ext_debugger_message_callback_t message_callback;
-} cmts_ext_debugger_init_options_t;
 
 // ================================================================
 // CMTS Functions:
