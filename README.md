@@ -33,16 +33,16 @@ CMTS is a header-only library, so you don't have to compile+include+link CMTS. `
 To avoid mistakes this snippet should ideally be in its own .cpp file.
 ### Platform Support
 ##### Operating System
-Currently only Windows (8 and over) is supported. Support for other OS will be added once the library is sufficiently complete.
+Currently only Windows (8 and over) is supported. Support for other OS will be added later.
 ##### Compiler Support
-MSVC (with the /GT option on release builds) is the only supported compiler for now, mostly due to how TLS optimizations in other compilers assume no stack switching.
+MSVC (with the /GT option on release builds) is the only supported compiler right now, mostly due to how TLS optimizations in other compilers assume no stack switching.
 ### Library Architecture
 CMTS can be conceptually split into three parts:
 - Worker Threads
 - Task Pool
 - Synchronization Objects
 ##### Worker Threads
-Each worker thread owns its own MPSC concurrent queue. By randomly selecting a target worker thread, tasks can be submitted with lower contention than if a single global queue was used.
+Each worker thread has its own MPSC concurrent queue. By randomly selecting a target worker thread, tasks can be submitted with lower contention than if a single global queue was used.
 ##### Task Pool
 The task pool essentially boils down to a global object pool based on a concurrent stack + freelist.
 While better than using a mutex, the pool's lock-free freelist is a major source of contention and will be replaced by another approach in the future.
