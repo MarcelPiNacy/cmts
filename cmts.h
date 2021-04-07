@@ -209,6 +209,8 @@ typedef struct cmts_memory_requirements_t
 	size_t alignment;
 } cmts_memory_requirements_t;
 
+typedef void(CMTS_CALL* cmts_ext_debugger_message_callback_t)(void* context, const cmts_ext_debugger_message_t* message);
+
 typedef struct cmts_ext_debugger_init_options_t
 {
 	const void* next;
@@ -231,8 +233,6 @@ typedef struct cmts_ext_debugger_message_t
 	cmts_ext_debugger_message_severity_t severity;
 	const void* ext;
 } cmts_ext_debugger_message_t;
-
-typedef void(CMTS_CALL* cmts_ext_debugger_message_callback_t)(void* context, const cmts_ext_debugger_message_t* message);
 
 typedef struct cmts_ext_task_name_init_options_t
 {
