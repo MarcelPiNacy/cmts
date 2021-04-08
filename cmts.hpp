@@ -129,9 +129,9 @@ namespace cmts
 	{
 		struct fence : cmts_fence_t
 		{
-			inline fence() noexcept
+			constexpr fence() noexcept
+				: cmts_fence_t{ CMTS_FENCE_INIT }
 			{
-				cmts_fence_init((cmts_fence_t*)this);
 			}
 
 			fence(const fence&) = delete;
@@ -151,9 +151,9 @@ namespace cmts
 
 		struct event : cmts_event_t
 		{
-			inline event() noexcept
+			constexpr event() noexcept
+				: cmts_event_t{ CMTS_EVENT_INIT }
 			{
-				cmts_event_init((cmts_event_t*)this);
 			}
 
 			event(const event&) = delete;
@@ -178,9 +178,9 @@ namespace cmts
 
 		struct counter : cmts_counter_t
 		{
-			inline counter(uint32_t value) noexcept
+			constexpr counter(uint32_t start_value) noexcept
+				: cmts_counter_t{ CMTS_COUNTER_INIT(start_value) }
 			{
-				cmts_counter_init((cmts_counter_t*)this, value);
 			}
 
 			counter(const counter&) = delete;
@@ -225,9 +225,9 @@ namespace cmts
 
 		struct mutex : cmts_mutex_t
 		{
-			inline mutex() noexcept
+			constexpr mutex() noexcept
+				: cmts_mutex_t{ CMTS_MUTEX_INIT }
 			{
-				cmts_mutex_init((cmts_mutex_t*)this);
 			}
 
 			mutex(const mutex&) = delete;

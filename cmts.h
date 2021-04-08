@@ -84,6 +84,11 @@
 #define CMTS_COUNTER_DATA_SIZE 16
 #define CMTS_MUTEX_DATA_SIZE 8
 
+#define CMTS_FENCE_INIT { UINT32_MAX }
+#define CMTS_EVENT_INIT { UINT64_MAX }
+#define CMTS_COUNTER_INIT(VALUE) { UINT64_MAX, (VALUE), UINT32_MAX }
+#define CMTS_MUTEX_INIT { UINT64_MAX }
+
 #ifndef CMTS_CHAR
 #define CMTS_CHAR char
 #endif
@@ -175,10 +180,10 @@ typedef enum cmts_ext_type_t
 	CMTS_EXT_TYPE_MAX_ENUM = CMTS_EXT_TYPE_TASK_NAME,
 } cmts_ext_type_t;
 
-typedef struct cmts_fence_t { uint8_t data[CMTS_FENCE_DATA_SIZE]; } cmts_fence_t;
-typedef struct cmts_event_t { uint8_t data[CMTS_EVENT_DATA_SIZE]; } cmts_event_t;
-typedef struct cmts_counter_t { uint8_t data[CMTS_COUNTER_DATA_SIZE]; } cmts_counter_t;
-typedef struct cmts_mutex_t { uint8_t data[CMTS_MUTEX_DATA_SIZE]; } cmts_mutex_t;
+typedef struct cmts_fence_t { uint32_t x; } cmts_fence_t;
+typedef struct cmts_event_t { uint64_t x; } cmts_event_t;
+typedef struct cmts_counter_t { uint64_t x; uint32_t y, z; } cmts_counter_t;
+typedef struct cmts_mutex_t { uint64_t x; } cmts_mutex_t;
 
 typedef struct cmts_init_options_t
 {
@@ -1116,6 +1121,7 @@ struct counter_data
 {
 	wait_queue queue;
 	std::atomic<uint32_t> value;
+	uint32_t unused;
 };
 
 struct mutex_data
@@ -1123,6 +1129,11 @@ struct mutex_data
 	uint32 owner;
 	uint32 tail;
 };
+
+static_assert(sizeof(cmts_fence_t) == CMTS_FENCE_DATA_SIZE);
+static_assert(sizeof(cmts_event_t) == CMTS_EVENT_DATA_SIZE);
+static_assert(sizeof(cmts_counter_t) == CMTS_COUNTER_DATA_SIZE);
+static_assert(sizeof(cmts_mutex_t) == CMTS_MUTEX_DATA_SIZE);
 
 static_assert(sizeof(cmts_event_t) >= sizeof(event_data));
 static_assert(sizeof(cmts_counter_t) >= sizeof(counter_data));
