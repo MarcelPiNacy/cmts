@@ -40,7 +40,7 @@ MSVC (with the /GT option on release builds) is the only supported compiler righ
 CMTS can be conceptually split into three parts:
 - Worker Threads
 - Task Pool
-- Synchronization Objects
+- Synchronization Primitives
 ##### Worker Threads
 Each worker thread has its own MPSC concurrent queue. By randomly selecting a target worker thread, tasks can be submitted with lower contention than if a single global queue was used.
 ##### Task Pool
