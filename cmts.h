@@ -1130,11 +1130,6 @@ struct mutex_data
 	uint32 tail;
 };
 
-static_assert(sizeof(cmts_fence_t) == CMTS_FENCE_DATA_SIZE);
-static_assert(sizeof(cmts_event_t) == CMTS_EVENT_DATA_SIZE);
-static_assert(sizeof(cmts_counter_t) == CMTS_COUNTER_DATA_SIZE);
-static_assert(sizeof(cmts_mutex_t) == CMTS_MUTEX_DATA_SIZE);
-
 static_assert(sizeof(cmts_event_t) >= sizeof(event_data));
 static_assert(sizeof(cmts_counter_t) >= sizeof(counter_data));
 static_assert(sizeof(cmts_mutex_t) >= sizeof(mutex_data));
@@ -1561,10 +1556,10 @@ extern "C"
 	CMTS_ATTR cmts_result_t CMTS_CALL cmts_finalize_await(cmts_deallocate_function_pointer_t deallocate)
 	{
 		using namespace detail::cmts;
-		CMTS_UNLIKELY_IF(!library_is_initialized.exchange(false, std::memory_order_acquire))
-			return CMTS_ERROR_LIBRARY_UNINITIALIZED;
 		CMTS_UNLIKELY_IF(!os::await_threads(worker_threads, worker_thread_count))
 			return CMTS_ERROR_AWAIT_WORKER_THREAD;
+		CMTS_UNLIKELY_IF(!library_is_initialized.exchange(false, std::memory_order_acquire))
+			return CMTS_ERROR_LIBRARY_UNINITIALIZED;
 		{
 			CMTS_LIBRARY_GUARD;
 			ufast32 n = non_atomic_load(task_pool_header.bump);
