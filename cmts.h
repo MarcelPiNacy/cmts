@@ -185,7 +185,6 @@ typedef struct cmts_fence_t { uint32_t x; } cmts_fence_t;
 typedef struct cmts_event_t { uint64_t x; } cmts_event_t;
 typedef struct cmts_counter_t { uint64_t x; uint32_t y, z; } cmts_counter_t;
 typedef struct cmts_mutex_t { uint64_t x; } cmts_mutex_t;
-typedef struct cmts_rcu_ptr_t { size_t x; } cmts_rcu_ptr_t;
 
 typedef struct cmts_init_options_t
 {
@@ -312,10 +311,6 @@ CMTS_ATTR void CMTS_CALL cmts_mutex_unlock(cmts_mutex_t* mutex);
 
 CMTS_ATTR void CMTS_CALL cmts_rcu_read_begin();
 CMTS_ATTR void CMTS_CALL cmts_rcu_read_end();
-CMTS_ATTR void* CMTS_CALL cmts_rcu_load(cmts_rcu_ptr_t* ptr);
-CMTS_ATTR void CMTS_CALL cmts_rcu_store(cmts_rcu_ptr_t* ptr, void* value);
-CMTS_ATTR void* CMTS_CALL cmts_rcu_xchg(cmts_rcu_ptr_t* ptr, void* value);
-CMTS_ATTR cmts_bool_t CMTS_CALL cmts_rcu_cmpxchg(cmts_rcu_ptr_t* ptr, void* expected, void* value);
 CMTS_ATTR void CMTS_CALL cmts_rcu_sync();
 CMTS_ATTR size_t CMTS_CALL cmts_rcu_snapshot_size();
 CMTS_ATTR void CMTS_CALL cmts_rcu_snapshot(void* snapshot);
@@ -2218,33 +2213,6 @@ extern "C"
 		if (rcu_depth == 0)
 			cmts_disable_yield_trap();
 #endif
-	}
-
-	CMTS_ATTR void* CMTS_CALL cmts_rcu_load(cmts_rcu_ptr_t* ptr)
-	{
-		static_assert(sizeof(cmts_rcu_ptr_t) >= sizeof(std::atomic<void*>));
-		return ((std::atomic<void*>*)ptr)->load(std::memory_order_acquire);
-	}
-
-	CMTS_ATTR void CMTS_CALL cmts_rcu_store(cmts_rcu_ptr_t* ptr, void* value)
-	{
-		using namespace detail::cmts;
-		CMTS_INVARIANT(cmts_is_task());
-		((std::atomic<void*>*)ptr)->store(value, std::memory_order_release);
-	}
-
-	CMTS_ATTR void* CMTS_CALL cmts_rcu_xchg(cmts_rcu_ptr_t* ptr, void* value)
-	{
-		using namespace detail::cmts;
-		CMTS_INVARIANT(cmts_is_task());
-		return ((std::atomic<void*>*)ptr)->exchange(value, std::memory_order_acquire);
-	}
-
-	CMTS_ATTR cmts_bool_t CMTS_CALL cmts_rcu_cmpxchg(cmts_rcu_ptr_t* ptr, void* expected, void* value)
-	{
-		using namespace detail::cmts;
-		CMTS_INVARIANT(cmts_is_task());
-		return ((std::atomic<void*>*)ptr)->compare_exchange_strong(expected, value, std::memory_order_acquire, std::memory_order_relaxed);
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_rcu_sync()

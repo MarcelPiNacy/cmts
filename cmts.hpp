@@ -567,8 +567,6 @@ namespace cmts
 
 	namespace rcu
 	{
-		enum class pointer : size_t {};
-
 		inline void read_begin()
 		{
 			cmts_rcu_read_begin();
@@ -579,47 +577,27 @@ namespace cmts
 			cmts_rcu_read_end();
 		}
 
-		inline void* load(pointer& ptr)
-		{
-			return cmts_rcu_load((cmts_rcu_ptr_t*)&ptr);
-		}
-
-		inline void store(pointer& ptr, void* value)
-		{
-			cmts_rcu_store((cmts_rcu_ptr_t*)&ptr, value);
-		}
-
-		inline void* exchange(pointer& ptr, void* value)
-		{
-			return cmts_rcu_xchg((cmts_rcu_ptr_t*)&ptr, value);
-		}
-
-		inline bool* compare_exchange(pointer& ptr, void* expected, void* desired)
-		{
-			return cmts_rcu_cmpxchg((cmts_rcu_ptr_t*)&ptr, expected, desired);
-		}
-
-		inline void CMTS_CALL synchronize()
+		inline void sync()
 		{
 			cmts_rcu_sync();
 		}
 
-		CMTS_ATTR size_t CMTS_CALL snapshot_size()
+		inline size_t snapshot_size()
 		{
 			return cmts_rcu_snapshot_size();
 		}
 
-		CMTS_ATTR void CMTS_CALL get_snapshot(void* snapshot)
+		inline void get_snapshot(void* snapshot)
 		{
 			cmts_rcu_snapshot(snapshot);
 		}
 
-		CMTS_ATTR uint32_t CMTS_CALL try_snapshot_sync(void* snapshot, uint32_t prior_result)
+		inline uint32_t try_snapshot_sync(void* snapshot, uint32_t prior_result)
 		{
 			return cmts_rcu_try_snapshot_sync(snapshot, prior_result);
 		}
 
-		CMTS_ATTR void CMTS_CALL snapshot_sync(void* snapshot)
+		inline void snapshot_sync(void* snapshot)
 		{
 			cmts_rcu_snapshot_sync(snapshot);
 		}
