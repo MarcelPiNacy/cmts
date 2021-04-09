@@ -952,11 +952,17 @@ CMTS_INLINE_ALWAYS static void submit_task(ufast32 task_index, ufast8 priority)
 		thread_index = (ufast32)default_prng::get();
 		thread_index = thread_modulo(thread_index);
 		queue = &(worker_thread_queues[priority][thread_index]);
-		CMTS_UNLIKELY_IF(queue->size.load(std::memory_order_acquire) >= queue_capacity)
+		ufast32 prior_size = queue->size.load(std::memory_order_acquire);
+		CMTS_UNLIKELY_IF(prior_size >= queue_capacity)
 			continue;
+#ifdef CMTS_FULLY_WAIT_FREE_QUEUE
 		CMTS_LIKELY_IF(queue->size.fetch_add(1, std::memory_order_acquire) < queue_capacity)
 			break;
 		(void)queue->size.fetch_sub(1, std::memory_order_release);
+#else
+		CMTS_LIKELY_IF(queue->size.compare_exchange_weak(prior_size, prior_size + 1, std::memory_order_acquire, std::memory_order_relaxed))
+			break;
+#endif
 	}
 	ufast32 index = queue->head.fetch_add(1, std::memory_order_acquire);
 	index = adjust_queue_index(index);
@@ -986,7 +992,10 @@ CMTS_INLINE_ALWAYS static ufast32 fetch_task()
 			shared_queue& queue = worker_thread_queues[priority][worker_thread_index];
 			if (queue.size.load(std::memory_order_acquire) == 0)
 				continue;
-			ufast32 task_index = queue.values[queue.tail].exchange(UINT32_MAX, std::memory_order_acquire);
+			std::atomic<uint32>& target = queue.values[queue.tail];
+			CMTS_UNLIKELY_IF(target.load(std::memory_order_acquire) == UINT32_MAX)
+				continue;
+			ufast32 task_index = target.exchange(UINT32_MAX, std::memory_order_acquire);
 			CMTS_UNLIKELY_IF(task_index == UINT32_MAX)
 				continue;
 			++queue.tail;
