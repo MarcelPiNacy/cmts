@@ -579,24 +579,49 @@ namespace cmts
 			cmts_rcu_read_end();
 		}
 
-		inline void* get(pointer& ptr)
+		inline void* load(pointer& ptr)
 		{
-			return cmts_rcu_load((cmts_rcu_ptr_t*)ptr);
+			return cmts_rcu_load((cmts_rcu_ptr_t*)&ptr);
 		}
 
-		inline void set(pointer& ptr, void* value)
+		inline void store(pointer& ptr, void* value)
 		{
-			cmts_rcu_store((cmts_rcu_ptr_t*)ptr, value);
+			cmts_rcu_store((cmts_rcu_ptr_t*)&ptr, value);
 		}
 
-		inline void sync()
+		inline void* exchange(pointer& ptr, void* value)
+		{
+			return cmts_rcu_xchg((cmts_rcu_ptr_t*)&ptr, value);
+		}
+
+		inline bool* compare_exchange(pointer& ptr, void* expected, void* desired)
+		{
+			return cmts_rcu_cmpxchg((cmts_rcu_ptr_t*)&ptr, expected, desired);
+		}
+
+		inline void CMTS_CALL synchronize()
 		{
 			cmts_rcu_sync();
 		}
 
-		inline bool sync(uint64_t timeout_nanoseconds)
+		CMTS_ATTR size_t CMTS_CALL snapshot_size()
 		{
-			return cmts_rcu_try_sync(timeout_nanoseconds);
+			return cmts_rcu_snapshot_size();
+		}
+
+		CMTS_ATTR void CMTS_CALL get_snapshot(void* snapshot)
+		{
+			cmts_rcu_snapshot(snapshot);
+		}
+
+		CMTS_ATTR uint32_t CMTS_CALL try_snapshot_sync(void* snapshot, uint32_t prior_result)
+		{
+			return cmts_rcu_try_snapshot_sync(snapshot, prior_result);
+		}
+
+		CMTS_ATTR void CMTS_CALL snapshot_sync(void* snapshot)
+		{
+			cmts_rcu_snapshot_sync(snapshot);
 		}
 	}
 

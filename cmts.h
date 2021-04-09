@@ -344,7 +344,6 @@ CMTS_EXTERN_C_END
 // ================================================================
 // CMTS Implementation:
 
-#define CMTS_IMPLEMENTATION
 #ifdef CMTS_IMPLEMENTATION
 #define CMTS_NAMESPACE_BEGIN namespace detail::cmts {
 #define CMTS_NAMESPACE_END }
@@ -814,8 +813,8 @@ CMTS_SHARED_ATTR static object_pool_header counter_pool_header;
 CMTS_SHARED_ATTR static shared_queue* worker_thread_queues[CMTS_MAX_PRIORITY];
 static task_data* task_pool;
 
-struct CMTS_SHARED_ATTR busy_wait_counter_type { std::atomic<ufast32> counter; };
-static busy_wait_counter_type* worker_thread_generation_counters;
+struct CMTS_SHARED_ATTR cache_aligned_counter { std::atomic<ufast32> counter; };
+static cache_aligned_counter* worker_thread_generation_counters;
 
 CMTS_INLINE_ALWAYS static bool is_valid_task(ufast32 index)
 {
@@ -1314,7 +1313,7 @@ CMTS_INLINE_ALWAYS static ufastptr required_library_buffer_size()
 	r += sizeof(shared_queue) * queues_per_thread;
 	r += sizeof(shared_queue::value_type) * round_pow2(max_tasks / worker_thread_count) * queues_per_thread;
 #ifdef CMTS_NO_BUSY_WAIT
-	r += sizeof(busy_wait_counter_type) * worker_thread_count;
+	r += sizeof(cache_aligned_counter) * worker_thread_count;
 #endif
 	return r;
 }
@@ -1365,12 +1364,12 @@ CMTS_INLINE_ALWAYS static void library_common_init(uint8* buffer)
 	ufastptr thread_size = round_to_cache_alignment(sizeof(*worker_threads) * worker_thread_count);
 	ufastptr task_size = sizeof(task_data) * max_tasks;
 	ufastptr queue_size = sizeof(shared_queue::value_type) * queue_capacity;
-	ufastptr worker_thread_generations_size = worker_thread_count * sizeof(busy_wait_counter_type);
+	ufastptr worker_thread_generations_size = worker_thread_count * sizeof(cache_aligned_counter);
 	worker_threads = (decltype(worker_threads))buffer;
 	buffer += thread_size;
 	task_pool = (task_data*)buffer;
 	buffer += task_size;
-	worker_thread_generation_counters = (busy_wait_counter_type*)buffer;
+	worker_thread_generation_counters = (cache_aligned_counter*)buffer;
 	buffer += worker_thread_generations_size;
 	for (ufast32 i = 0; i != worker_thread_count; ++i)
 		non_atomic_store(worker_thread_generation_counters[i].counter, 0);
@@ -2238,14 +2237,14 @@ extern "C"
 	{
 		using namespace detail::cmts;
 		CMTS_INVARIANT(cmts_is_task());
-		return ((std::atomic<void*>*)ptr)->exchange(value, std::memory_order_release);
+		return ((std::atomic<void*>*)ptr)->exchange(value, std::memory_order_acquire);
 	}
 
 	CMTS_ATTR cmts_bool_t CMTS_CALL cmts_rcu_cmpxchg(cmts_rcu_ptr_t* ptr, void* expected, void* value)
 	{
 		using namespace detail::cmts;
 		CMTS_INVARIANT(cmts_is_task());
-		return ((std::atomic<void*>*)ptr)->compare_exchange_strong(expected, value, std::memory_order_release, std::memory_order_relaxed);
+		return ((std::atomic<void*>*)ptr)->compare_exchange_strong(expected, value, std::memory_order_acquire, std::memory_order_relaxed);
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_rcu_sync()
