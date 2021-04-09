@@ -130,7 +130,7 @@ namespace cmts
 		struct fence : cmts_fence_t
 		{
 			constexpr fence() noexcept
-				: cmts_fence_t{ CMTS_FENCE_INIT }
+				: cmts_fence_t(CMTS_FENCE_INIT)
 			{
 			}
 
@@ -152,7 +152,7 @@ namespace cmts
 		struct event : cmts_event_t
 		{
 			constexpr event() noexcept
-				: cmts_event_t{ CMTS_EVENT_INIT }
+				: cmts_event_t(CMTS_EVENT_INIT)
 			{
 			}
 
@@ -170,7 +170,7 @@ namespace cmts
 				return (result)cmts_event_await((cmts_event_t*)this);
 			}
 
-			inline void signal() noexcept
+			inline result signal() noexcept
 			{
 				return (result)cmts_event_signal((cmts_event_t*)this);
 			}
@@ -179,7 +179,7 @@ namespace cmts
 		struct counter : cmts_counter_t
 		{
 			constexpr counter(uint32_t start_value) noexcept
-				: cmts_counter_t{ CMTS_COUNTER_INIT(start_value) }
+				: cmts_counter_t(CMTS_COUNTER_INIT(start_value))
 			{
 			}
 
@@ -202,22 +202,22 @@ namespace cmts
 				return cmts_counter_value((const cmts_counter_t*)this);
 			}
 
-			inline void operator++(int unused) noexcept
+			inline result operator++(int unused) noexcept
 			{
 				return (result)cmts_counter_increment((cmts_counter_t*)this);
 			}
 
-			inline void operator++() noexcept
+			inline result operator++() noexcept
 			{
 				return (result)cmts_counter_increment((cmts_counter_t*)this);
 			}
 
-			inline void operator--(int unused) noexcept
+			inline result operator--(int unused) noexcept
 			{
 				return (result)cmts_counter_decrement((cmts_counter_t*)this);
 			}
 
-			inline void operator--() noexcept
+			inline result operator--() noexcept
 			{
 				return (result)cmts_counter_decrement((cmts_counter_t*)this);
 			}
@@ -226,7 +226,7 @@ namespace cmts
 		struct mutex : cmts_mutex_t
 		{
 			constexpr mutex() noexcept
-				: cmts_mutex_t{ CMTS_MUTEX_INIT }
+				: cmts_mutex_t(CMTS_MUTEX_INIT)
 			{
 			}
 
@@ -268,9 +268,9 @@ namespace cmts
 		return (result)cmts_dispatch(function, nullptr);
 	}
 
-	inline result dispatch(task_function_pointer function, const dispatch_options& options) noexcept
+	inline result dispatch(task_function_pointer function, dispatch_options& options) noexcept
 	{
-		return (result)cmts_dispatch(function, &options);
+		return (result)cmts_dispatch(function, (cmts_dispatch_options_t*)&options);
 	}
 
 	inline bool is_task() noexcept
@@ -287,7 +287,7 @@ namespace cmts
 
 	inline result init(const init_options& options) noexcept
 	{
-		return (result)cmts_init((cmts_init_options_t)&options);
+		return (result)cmts_init((cmts_init_options_t*)&options);
 	}
 
 	inline result pause() noexcept
@@ -302,17 +302,17 @@ namespace cmts
 
 	inline result exit_signal() noexcept
 	{
-		return (result)cmts_finalize_signal();
+		cmts_finalize_signal();
 	}
 
-	inline result exit_await() noexcept
+	inline result exit_await(deallocate_function_pointer deallocate) noexcept
 	{
-		return (result)cmts_finalize_await();
+		return (result)cmts_finalize_await(deallocate);
 	}
 
-	inline result terminate() noexcept
+	inline result terminate(deallocate_function_pointer deallocate) noexcept
 	{
-		return (result)cmts_terminate();
+		return (result)cmts_terminate(deallocate);
 	}
 
 	inline bool is_initialized() noexcept
@@ -335,9 +335,9 @@ namespace cmts
 		return (result)cmts_purge(max_trimmed_tasks, deallocate);
 	}
 
-	inline result purge_all()
+	inline result purge_all(deallocate_function_pointer deallocate)
 	{
-		return (result)cmts_purge_all();
+		return (result)cmts_purge_all(deallocate);
 	}
 
 	inline uint32_t worker_thread_count()
@@ -445,7 +445,7 @@ namespace cmts
 			cmts_exit();
 		}
 
-		inline void id()
+		inline task_id id()
 		{
 			return (task_id)cmts_this_task_id();
 		}
@@ -537,19 +537,19 @@ namespace cmts
 
 			inline void set(task_id id, string_view_type name)
 			{
-				cmts_ext_task_name_set(id, name.data(), name.size());
+				cmts_ext_task_name_set((cmts_task_id_t)id, name.data(), name.size());
 			}
 
 			inline void clear(task_id id)
 			{
-				cmts_ext_task_name_clear(id);
+				cmts_ext_task_name_clear((cmts_task_id_t)id);
 			}
 
 			inline string_view_type get(task_id id)
 			{
 				const CMTS_CHAR* prior_ptr;
 				size_t prior_size;
-				cmts_ext_task_name_get(id, &prior_ptr, &prior_size);
+				cmts_ext_task_name_get((cmts_task_id_t)id, &prior_ptr, &prior_size);
 				return string_view_type(prior_ptr, prior_size);
 			}
 
@@ -557,11 +557,50 @@ namespace cmts
 			{
 				const CMTS_CHAR* prior_ptr;
 				size_t prior_size;
-				cmts_ext_task_name_swap(id, name.data(), name.size(), &prior_ptr, &prior_size);
+				cmts_ext_task_name_swap((cmts_task_id_t)id, name.data(), name.size(), &prior_ptr, &prior_size);
 				return string_view_type(prior_ptr, prior_size);
 			}
 		}
 	}
+
+
+
+	namespace rcu
+	{
+		enum class pointer : size_t {};
+
+		inline void read_begin()
+		{
+			cmts_rcu_read_begin();
+		}
+
+		inline void read_end()
+		{
+			cmts_rcu_read_end();
+		}
+
+		inline void* get(pointer& ptr)
+		{
+			return cmts_rcu_load((cmts_rcu_ptr_t*)ptr);
+		}
+
+		inline void set(pointer& ptr, void* value)
+		{
+			cmts_rcu_store((cmts_rcu_ptr_t*)ptr, value);
+		}
+
+		inline void sync()
+		{
+			cmts_rcu_sync();
+		}
+
+		inline bool sync(uint64_t timeout_nanoseconds)
+		{
+			return cmts_rcu_try_sync(timeout_nanoseconds);
+		}
+	}
+
+
 
 	namespace util
 	{
