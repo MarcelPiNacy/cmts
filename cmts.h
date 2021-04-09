@@ -2204,9 +2204,9 @@ extern "C"
 
 	CMTS_ATTR void CMTS_CALL cmts_rcu_read_begin()
 	{
+#ifdef CMTS_DEBUG
 		using namespace detail::cmts;
 		CMTS_INVARIANT(cmts_is_task());
-#ifdef CMTS_DEBUG
 		if (rcu_depth == 0)
 			cmts_enable_yield_trap();
 		++rcu_depth;
@@ -2215,9 +2215,9 @@ extern "C"
 
 	CMTS_ATTR void CMTS_CALL cmts_rcu_read_end()
 	{
+#ifdef CMTS_DEBUG
 		using namespace detail::cmts;
 		CMTS_INVARIANT(cmts_is_task());
-#ifdef CMTS_DEBUG
 		--rcu_depth;
 		if (rcu_depth == 0)
 			cmts_disable_yield_trap();
