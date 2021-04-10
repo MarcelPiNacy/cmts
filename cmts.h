@@ -2277,8 +2277,12 @@ extern "C"
 		uint32* state = (uint32*)snapshot;
 		ufast32 i = prior_result;
 		for (; i != worker_thread_count; ++i)
+		{
+			if (i == worker_thread_index)
+				continue;
 			if (worker_thread_generation_counters[i].counter.load(std::memory_order_acquire) == state[i])
 				break;
+		}
 		return i;
 	}
 
@@ -2287,8 +2291,12 @@ extern "C"
 		using namespace detail::cmts;
 		uint32* state = (uint32*)snapshot;
 		for (ufast32 i = 0; i != worker_thread_count; ++i)
+		{
+			if (i == worker_thread_index)
+				continue;
 			while (worker_thread_generation_counters[i].counter.load(std::memory_order_acquire) == state[i])
 				cmts_yield();
+		}
 	}
 
 	CMTS_ATTR uint32_t CMTS_CALL cmts_this_worker_thread_index()
