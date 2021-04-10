@@ -977,6 +977,40 @@ CMTS_INLINE_ALWAYS static void submit_task(ufast32 task_index, ufast8 priority)
 	os::futex_signal(worker_thread_generation_counters[thread_index].counter);
 }
 
+CMTS_INLINE_NEVER static void submit_task_on(ufast32 task_index, ufast8 priority, ufast32 thread_index)
+{
+	CMTS_INVARIANT(priority < CMTS_MAX_PRIORITY);
+	CMTS_ASSERT(is_valid_task(task_index));
+	CMTS_ASSERT(task_pool[task_index].function != nullptr);
+	shared_queue* queue;
+	for (;; finalize_check())
+	{
+		queue = &(worker_thread_queues[priority][thread_index]);
+		ufast32 prior_size = queue->size.load(std::memory_order_acquire);
+		CMTS_UNLIKELY_IF(prior_size >= queue_capacity)
+			continue;
+#ifdef CMTS_FULLY_WAIT_FREE_QUEUE
+		CMTS_LIKELY_IF(queue->size.fetch_add(1, std::memory_order_acquire) < queue_capacity)
+			break;
+		(void)queue->size.fetch_sub(1, std::memory_order_release);
+#else
+		CMTS_LIKELY_IF(queue->size.compare_exchange_weak(prior_size, prior_size + 1, std::memory_order_acquire, std::memory_order_relaxed))
+			break;
+#endif
+	}
+	ufast32 index = queue->head.fetch_add(1, std::memory_order_acquire);
+	index = adjust_queue_index(index);
+#ifdef CMTS_DEBUG
+	ufast32 n = queue->values[index].exchange(task_index, std::memory_order_release);
+	CMTS_INVARIANT(n == UINT32_MAX);
+#else
+	queue->values[index].store(task_index, std::memory_order_release);
+#endif
+
+	(void)worker_thread_generation_counters[thread_index].counter.fetch_add(1, std::memory_order_relaxed);
+	os::futex_signal(worker_thread_generation_counters[thread_index].counter);
+}
+
 CMTS_INLINE_ALWAYS static ufast32 fetch_task()
 {
 #ifdef CMTS_NO_BUSY_WAIT
@@ -1210,6 +1244,7 @@ CMTS_INLINE_ALWAYS static void release_task(ufast32 index)
 	CMTS_INVARIANT(is_valid_task(index));
 	task_data& task = task_pool[index];
 	++task.generation;
+	task.assigned_thread = worker_thread_count;
 	task.function = nullptr;
 	task.parameter = nullptr;
 	task.priority = 0;
@@ -1251,7 +1286,12 @@ static os::thread_return_type CMTS_WORKER_THREAD_CALLING_CONVENTION cmts_worker_
 		if (task.function != nullptr)
 		{
 			if (!to_sleep)
-				submit_task(index, task.priority);
+			{
+				if (task.assigned_thread == worker_thread_count)
+					submit_task(index, task.priority);
+				else
+					submit_task_on(index, task.priority, task.assigned_thread);
+			}
 		}
 		else
 		{
@@ -2227,21 +2267,40 @@ extern "C"
 	CMTS_ATTR void CMTS_CALL cmts_rcu_sync()
 	{
 		using namespace detail::cmts;
-		constexpr ufast8 BLOCK_SIZE = 64;
-		uint32 block[BLOCK_SIZE];
-		ufast32 i = 0;
-		while (i < worker_thread_count)
+
+#ifdef CMTS_RCU_SYNC_BASIC
+
+		ufast32 initial_index = worker_thread_index;
+		for (ufast32 i = 0; i != worker_thread_count; ++i)
 		{
-			ufast32 next = i + BLOCK_SIZE;
-			ufast8 max = BLOCK_SIZE;
+			if (i == initial_index)
+				continue;
+			get_current_task().assigned_thread = i;
+			cmts_yield();
+		}
+		get_current_task().assigned_thread = worker_thread_count;
+
+#else
+		constexpr ufast32 BLOCK_SIZE = 256;
+		uint32 block[BLOCK_SIZE];
+		
+		ufast32 next;
+		for (ufast32 i = 0; i < worker_thread_count; i = next)
+		{
+			next = i + BLOCK_SIZE;
+			ufast32 max = BLOCK_SIZE;
+			
 			CMTS_UNLIKELY_IF(next > worker_thread_count)
 				max = worker_thread_count - i;
-			for (ufast8 j = 0; j != BLOCK_SIZE; ++j)
+			
+			for (ufast32 j = 0; j != BLOCK_SIZE; ++j)
 				block[j] = worker_thread_generation_counters[i + j].counter.load(std::memory_order_relaxed);
+
 			cmts_yield();
-			for (ufast8 j = 0; j != BLOCK_SIZE; ++j)
+			
+			for (ufast32 j = 0; j != BLOCK_SIZE; ++j)
 			{
-				for (ufast8 k = 0;;)
+				for (ufast32 k = 0;;)
 				{
 					if (block[j] != worker_thread_generation_counters[i + j].counter.load(std::memory_order_acquire))
 						break;
@@ -2253,8 +2312,8 @@ extern "C"
 					}
 				}
 			}
-			i = next;
 		}
+#endif
 	}
 
 	CMTS_ATTR size_t CMTS_CALL cmts_rcu_snapshot_size()
