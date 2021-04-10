@@ -982,29 +982,28 @@ CMTS_INLINE_NEVER static void submit_task_on(ufast32 task_index, ufast8 priority
 	CMTS_INVARIANT(priority < CMTS_MAX_PRIORITY);
 	CMTS_ASSERT(is_valid_task(task_index));
 	CMTS_ASSERT(task_pool[task_index].function != nullptr);
-	shared_queue* queue;
+	shared_queue& queue = worker_thread_queues[priority][thread_index];
 	for (;; finalize_check())
 	{
-		queue = &(worker_thread_queues[priority][thread_index]);
-		ufast32 prior_size = queue->size.load(std::memory_order_acquire);
+		ufast32 prior_size = queue.size.load(std::memory_order_acquire);
 		CMTS_UNLIKELY_IF(prior_size >= queue_capacity)
 			continue;
 #ifdef CMTS_FULLY_WAIT_FREE_QUEUE
-		CMTS_LIKELY_IF(queue->size.fetch_add(1, std::memory_order_acquire) < queue_capacity)
+		CMTS_LIKELY_IF(queue.size.fetch_add(1, std::memory_order_acquire) < queue_capacity)
 			break;
-		(void)queue->size.fetch_sub(1, std::memory_order_release);
+		(void)queue.size.fetch_sub(1, std::memory_order_release);
 #else
-		CMTS_LIKELY_IF(queue->size.compare_exchange_weak(prior_size, prior_size + 1, std::memory_order_acquire, std::memory_order_relaxed))
+		CMTS_LIKELY_IF(queue.size.compare_exchange_weak(prior_size, prior_size + 1, std::memory_order_acquire, std::memory_order_relaxed))
 			break;
 #endif
 	}
-	ufast32 index = queue->head.fetch_add(1, std::memory_order_acquire);
+	ufast32 index = queue.head.fetch_add(1, std::memory_order_acquire);
 	index = adjust_queue_index(index);
 #ifdef CMTS_DEBUG
-	ufast32 n = queue->values[index].exchange(task_index, std::memory_order_release);
+	ufast32 n = queue.values[index].exchange(task_index, std::memory_order_release);
 	CMTS_INVARIANT(n == UINT32_MAX);
 #else
-	queue->values[index].store(task_index, std::memory_order_release);
+	queue.values[index].store(task_index, std::memory_order_release);
 #endif
 
 	(void)worker_thread_generation_counters[thread_index].counter.fetch_add(1, std::memory_order_relaxed);
