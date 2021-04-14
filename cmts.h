@@ -30,6 +30,7 @@
 #endif
 
 #include <stdint.h>
+#include <stddef.h>
 
 #ifndef CMTS_CALL
 #define CMTS_CALL
