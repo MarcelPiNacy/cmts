@@ -18,6 +18,7 @@
 
 // ================================================================
 // CMTS Macros:
+// ================================================================
 
 #ifndef CMTS_INCLUDED
 #define CMTS_INCLUDED
@@ -110,6 +111,7 @@
 
 // ================================================================
 // CMTS Types:
+// ================================================================
 
 CMTS_EXTERN_C_BEGIN
 
@@ -249,6 +251,7 @@ typedef struct cmts_ext_task_name_init_options_t
 
 // ================================================================
 // CMTS Functions:
+// ================================================================
 
 CMTS_ATTR cmts_result_t	CMTS_CALL cmts_init(const cmts_init_options_t* options);
 CMTS_ATTR cmts_result_t	CMTS_CALL cmts_pause();
@@ -259,8 +262,8 @@ CMTS_ATTR cmts_result_t CMTS_CALL cmts_terminate(cmts_deallocate_function_pointe
 CMTS_ATTR cmts_bool_t CMTS_CALL cmts_is_initialized();
 CMTS_ATTR cmts_bool_t CMTS_CALL cmts_is_online();
 CMTS_ATTR cmts_bool_t CMTS_CALL cmts_is_paused();
-CMTS_ATTR uint32_t CMTS_CALL cmts_purge(uint32_t max_trimmed_tasks, cmts_deallocate_function_pointer_t deallocate);
-CMTS_ATTR uint32_t CMTS_CALL cmts_purge_all(cmts_deallocate_function_pointer_t deallocate);
+CMTS_ATTR uint32_t CMTS_CALL cmts_purge(uint32_t max_trimmed_tasks);
+CMTS_ATTR uint32_t CMTS_CALL cmts_purge_all();
 CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_count();
 CMTS_ATTR cmts_bool_t CMTS_CALL cmts_requires_task_allocator();
 CMTS_ATTR void CMTS_CALL cmts_assign_task_allocator(cmts_allocate_function_pointer_t allocate, cmts_deallocate_function_pointer_t deallocate);
@@ -293,12 +296,14 @@ CMTS_ATTR void CMTS_CALL cmts_fence_signal(cmts_fence_t* fence);
 CMTS_ATTR void CMTS_CALL cmts_fence_await(cmts_fence_t* fence);
 
 CMTS_ATTR void CMTS_CALL cmts_event_init(cmts_event_t* event);
+CMTS_ATTR cmts_result_t CMTS_CALL cmts_event_state(const cmts_event_t* event);
 CMTS_ATTR cmts_result_t CMTS_CALL cmts_event_signal(cmts_event_t* event);
 CMTS_ATTR cmts_result_t CMTS_CALL cmts_event_await(cmts_event_t* event);
 CMTS_ATTR cmts_result_t CMTS_CALL cmts_event_reset(cmts_event_t* event);
 
 CMTS_ATTR void CMTS_CALL cmts_counter_init(cmts_counter_t* counter, uint32_t start_value);
 CMTS_ATTR uint32_t CMTS_CALL cmts_counter_value(const cmts_counter_t* counter);
+CMTS_ATTR cmts_result_t CMTS_CALL cmts_counter_state(const cmts_counter_t* counter);
 CMTS_ATTR cmts_result_t CMTS_CALL cmts_counter_increment(cmts_counter_t* counter);
 CMTS_ATTR cmts_result_t CMTS_CALL cmts_counter_decrement(cmts_counter_t* counter);
 CMTS_ATTR cmts_result_t CMTS_CALL cmts_counter_await(cmts_counter_t* counter);
@@ -336,9 +341,11 @@ CMTS_ATTR void CMTS_CALL cmts_ext_task_name_get(cmts_task_id_t id, const CMTS_CH
 CMTS_ATTR void CMTS_CALL cmts_ext_task_name_clear(cmts_task_id_t id);
 
 CMTS_EXTERN_C_END
+#endif
 
 // ================================================================
 // CMTS Implementation:
+// ================================================================
 
 #ifdef CMTS_IMPLEMENTATION
 #define CMTS_NAMESPACE_BEGIN namespace detail::cmts {
@@ -408,7 +415,7 @@ using ufastptr = ufast64;
 #endif
 
 template <typename T>
-CMTS_INLINE_ALWAYS static T non_atomic_load(const std::atomic<T>& from)
+CMTS_INLINE_ALWAYS static T non_atomic_load(const std::atomic<T>&from)
 {
 	static_assert(std::atomic<T>::is_always_lock_free);
 	return *(const T*)&from;
@@ -528,7 +535,7 @@ namespace os
 {
 	using thread_return_type = DWORD;
 	using thread_parameter_type = void*;
-#ifdef CMTS_NO_BUSY_WAIT
+#if defined(CMTS_NO_BUSY_WAIT) || defined(CMTS_HYBRID_MUTEX)
 	using WaitOnAddress_t = decltype(WaitOnAddress)*;
 	using WakeByAddressSingle_t = decltype(WakeByAddressSingle)*;
 
@@ -536,7 +543,7 @@ namespace os
 	static WaitOnAddress_t wait_on_address;
 	static WakeByAddressSingle_t wake_by_address_single;
 #endif
-	
+
 	static uint64_t qpc_frequency;
 
 	CMTS_INLINE_ALWAYS static bool initialize()
@@ -544,7 +551,7 @@ namespace os
 		LARGE_INTEGER k;
 		(void)QueryPerformanceFrequency(&k);
 		qpc_frequency = k.QuadPart;
-#ifdef CMTS_NO_BUSY_WAIT
+#if defined(CMTS_NO_BUSY_WAIT) || defined(CMTS_HYBRID_MUTEX)
 		sync_library = GetModuleHandle(TEXT("Synchronization.lib"));
 		CMTS_UNLIKELY_IF(sync_library == nullptr)
 		{
@@ -658,17 +665,19 @@ namespace os
 		(void)SwitchToThread();
 	}
 
-	CMTS_INLINE_ALWAYS static void futex_signal(std::atomic<uint32>& counter)
+	template <typename T>
+	CMTS_INLINE_ALWAYS static void futex_signal(std::atomic<T>& target)
 	{
-#ifdef CMTS_NO_BUSY_WAIT
-		wake_by_address_single(&counter);
+#if defined(CMTS_NO_BUSY_WAIT) || defined(CMTS_HYBRID_MUTEX)
+		wake_by_address_single(&target);
 #endif
 	}
 
-	CMTS_INLINE_ALWAYS static void futex_await(std::atomic<uint32>& counter, uint32& last_value)
+	template <typename T>
+	CMTS_INLINE_ALWAYS static void futex_await(std::atomic<T>& target, T& last_value)
 	{
-#ifdef CMTS_NO_BUSY_WAIT
-		(void)wait_on_address((volatile void*)&counter, &last_value, sizeof(uint32), INFINITE);
+#if defined(CMTS_NO_BUSY_WAIT) || defined(CMTS_HYBRID_MUTEX)
+		(void)wait_on_address((volatile void*)&target, &last_value, sizeof(T), INFINITE);
 #endif
 	}
 
@@ -803,7 +812,7 @@ struct CMTS_SHARED_ATTR object_pool_header
 	}
 };
 
-CMTS_SHARED_ATTR static object_pool_header task_pool_header;
+CMTS_SHARED_ATTR static object_pool_header task_pool_ctrl;
 CMTS_SHARED_ATTR static object_pool_header event_pool_header;
 CMTS_SHARED_ATTR static object_pool_header counter_pool_header;
 CMTS_SHARED_ATTR static shared_queue* worker_thread_queues[CMTS_MAX_PRIORITY];
@@ -816,7 +825,7 @@ CMTS_INLINE_ALWAYS static bool is_valid_task(ufast32 index)
 {
 	CMTS_UNLIKELY_IF(index >= max_tasks)
 		return false;
-	CMTS_UNLIKELY_IF(index >= task_pool_header.bump.load(std::memory_order_acquire))
+	CMTS_UNLIKELY_IF(index >= task_pool_ctrl.bump.load(std::memory_order_acquire))
 		return false;
 	return true;
 }
@@ -1102,6 +1111,14 @@ struct wait_queue
 		return prior.head != UINT32_MAX && prior.tail == UINT32_MAX;
 	}
 
+	CMTS_INLINE_ALWAYS cmts_result_t get_state() const
+	{
+		queue_state prior = ctrl.load(std::memory_order_acquire);
+		if (prior.head == UINT32_MAX)
+			return CMTS_NOT_READY;
+		return prior.tail != UINT32_MAX ? CMTS_OK : CMTS_SYNC_OBJECT_EXPIRED;
+	}
+
 	CMTS_INLINE_ALWAYS bool push_current_task()
 	{
 		ufast32 task_index = this_task_index;
@@ -1193,12 +1210,12 @@ static_assert(sizeof(cmts_mutex_t) >= sizeof(mutex_data));
 CMTS_INLINE_ALWAYS static ufast32 try_acquire_task_dirty()
 {
 	index_generation_pair prior, desired;
-	prior = task_pool_header.freelist.load(std::memory_order_acquire);
+	prior = task_pool_ctrl.freelist.load(std::memory_order_acquire);
 	CMTS_LIKELY_IF(prior.index != UINT32_MAX)
 	{
 		desired.index = task_pool[prior.index].next;
 		desired.generation = prior.generation + 1;
-		CMTS_LIKELY_IF(task_pool_header.freelist.compare_exchange_weak(prior, desired, std::memory_order_acquire, std::memory_order_relaxed))
+		CMTS_LIKELY_IF(task_pool_ctrl.freelist.compare_exchange_weak(prior, desired, std::memory_order_acquire, std::memory_order_relaxed))
 			return prior.index;
 	}
 	return UINT32_MAX;
@@ -1209,14 +1226,14 @@ CMTS_INLINE_ALWAYS static ufast32 try_acquire_task()
 	ufast32 r = try_acquire_task_dirty();
 	CMTS_UNLIKELY_IF(r == UINT32_MAX)
 	{
-		CMTS_LIKELY_IF(task_pool_header.bump.load(std::memory_order_acquire) < max_tasks)
+		CMTS_LIKELY_IF(task_pool_ctrl.bump.load(std::memory_order_acquire) < max_tasks)
 		{
-			ufast32 r = task_pool_header.bump.fetch_add(1, std::memory_order_acquire);
+			ufast32 r = task_pool_ctrl.bump.fetch_add(1, std::memory_order_acquire);
 			CMTS_LIKELY_IF(r < max_tasks)
 				return r;
-			ufast32 expected_bump = task_pool_header.bump.load(std::memory_order_acquire);
+			ufast32 expected_bump = task_pool_ctrl.bump.load(std::memory_order_acquire);
 			CMTS_UNLIKELY_IF(expected_bump > max_tasks)
-				(void)task_pool_header.bump.compare_exchange_weak(expected_bump, max_tasks, std::memory_order_release, std::memory_order_relaxed);
+				(void)task_pool_ctrl.bump.compare_exchange_weak(expected_bump, max_tasks, std::memory_order_release, std::memory_order_relaxed);
 		}
 	}
 	return r;
@@ -1240,7 +1257,6 @@ CMTS_INLINE_ALWAYS static ufast32 acquire_task_blocking()
 
 CMTS_INLINE_ALWAYS static void release_task(ufast32 index)
 {
-	CMTS_INVARIANT(task_pool[index].next == UINT32_MAX);
 	CMTS_INVARIANT(is_valid_task(index));
 	task_data& task = task_pool[index];
 	++task.generation;
@@ -1250,14 +1266,15 @@ CMTS_INLINE_ALWAYS static void release_task(ufast32 index)
 	task.priority = 0;
 	task.sync_type = CMTS_SYNC_TYPE_NONE;
 	task.sync_object = nullptr;
+	task.next = UINT32_MAX;
 	index_generation_pair prior, desired;
 	for (;; CMTS_SPIN_WAIT())
 	{
-		prior = task_pool_header.freelist.load(std::memory_order_acquire);
+		prior = task_pool_ctrl.freelist.load(std::memory_order_acquire);
 		task.next = prior.index;
 		desired.index = index;
 		desired.generation = prior.generation + 1;
-		CMTS_LIKELY_IF(task_pool_header.freelist.compare_exchange_weak(prior, desired, std::memory_order_release, std::memory_order_relaxed))
+		CMTS_LIKELY_IF(task_pool_ctrl.freelist.compare_exchange_weak(prior, desired, std::memory_order_release, std::memory_order_relaxed))
 			break;
 	}
 }
@@ -1431,12 +1448,13 @@ CMTS_INLINE_ALWAYS static void library_common_init(uint8* buffer)
 			buffer += queue_size;
 		}
 	}
-	task_pool_header.initialize();
+	task_pool_ctrl.initialize();
 	event_pool_header.initialize();
 	counter_pool_header.initialize();
 	for (ufast32 i = 0; i != max_tasks; ++i)
 	{
 		(void)memset(task_pool + i, 0, sizeof(task_data));
+		task_pool[i].assigned_thread = worker_thread_count;
 		task_pool[i].next = UINT32_MAX;
 	}
 	bool pow2 = CMTS_POPCOUNT(worker_thread_count) == 1;
@@ -1623,7 +1641,7 @@ extern "C"
 			return CMTS_ERROR_LIBRARY_UNINITIALIZED;
 		{
 			CMTS_LIBRARY_GUARD;
-			ufast32 n = non_atomic_load(task_pool_header.bump);
+			ufast32 n = non_atomic_load(task_pool_ctrl.bump);
 			for (ufast32 i = 0; i != n; ++i)
 			{
 				task_data& task = task_pool[i];
@@ -1657,6 +1675,18 @@ extern "C"
 			CMTS_LIBRARY_GUARD;
 			CMTS_UNLIKELY_IF(!os::terminate_threads(worker_threads, worker_thread_count))
 				return CMTS_ERROR_WORKER_THREAD_TERMINATION;
+			ufast32 n = non_atomic_load(task_pool_ctrl.bump);
+			for (ufast32 i = 0; i != n; ++i)
+			{
+				task_data& task = task_pool[i];
+#ifdef CMTS_WINDOWS
+				CMTS_LIKELY_IF(task.handle != nullptr)
+				{
+					DeleteFiber(task.handle);
+					task.handle = nullptr;
+				}
+#endif
+			}
 			ufastptr buffer_size = required_library_buffer_size();
 			bool flag;
 			if (deallocate != nullptr)
@@ -1690,44 +1720,16 @@ extern "C"
 		return library_is_paused.load(std::memory_order_acquire);
 	}
 
-	CMTS_ATTR uint32_t CMTS_CALL cmts_purge(uint32_t max_trimmed_tasks, cmts_deallocate_function_pointer_t deallocate)
+	CMTS_ATTR uint32_t CMTS_CALL cmts_purge(uint32_t max_trimmed_tasks)
 	{
 		using namespace detail::cmts;
-		uint32_t n = 0;
-		for (; n != max_trimmed_tasks; ++n)
-		{
-			ufast32 r = try_acquire_task_dirty();
-			if (r == UINT32_MAX)
-				break;
-#ifdef CMTS_WINDOWS
-			HANDLE h = task_pool[r].handle;
-			task_pool[r].handle = nullptr;
-			release_task(r);
-			CMTS_INVARIANT(h != nullptr);
-			DeleteFiber(h);
-#endif
-		}
-		return n;
+		return 0;
 	}
 
-	CMTS_ATTR uint32_t CMTS_CALL cmts_purge_all(cmts_deallocate_function_pointer_t deallocate)
+	CMTS_ATTR uint32_t CMTS_CALL cmts_purge_all()
 	{
 		using namespace detail::cmts;
-		uint32_t n = 0;
-		for (;; ++n)
-		{
-			ufast32 r = try_acquire_task_dirty();
-			if (r == UINT32_MAX)
-				break;
-#ifdef CMTS_WINDOWS
-			HANDLE h = task_pool[r].handle;
-			task_pool[r].handle = nullptr;
-			release_task(r);
-			CMTS_INVARIANT(h != nullptr);
-			DeleteFiber(h);
-#endif
-		}
-		return n;
+		return 0;
 	}
 
 	CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_count()
@@ -2077,6 +2079,14 @@ extern "C"
 		event.queue.init();
 	}
 
+	CMTS_ATTR cmts_result_t CMTS_CALL cmts_event_state(const cmts_event_t* event_ptr)
+	{
+		using namespace detail::cmts;
+		CMTS_INVARIANT(event_ptr != nullptr);
+		const event_data& event = *(const event_data*)event_ptr;
+		return event.queue.get_state();
+	}
+
 	CMTS_ATTR cmts_result_t CMTS_CALL cmts_event_signal(cmts_event_t* event_ptr)
 	{
 		using namespace detail::cmts;
@@ -2118,6 +2128,14 @@ extern "C"
 		CMTS_INVARIANT(counter_ptr != nullptr);
 		const counter_data& counter = *(const counter_data*)counter_ptr;
 		return counter.value.load(std::memory_order_acquire);
+	}
+
+	CMTS_ATTR cmts_result_t CMTS_CALL cmts_counter_state(const cmts_counter_t* counter_ptr)
+	{
+		using namespace detail::cmts;
+		CMTS_INVARIANT(counter_ptr != nullptr);
+		const counter_data& counter = *(const counter_data*)counter_ptr;
+		return counter.queue.get_state();
 	}
 
 	CMTS_ATTR cmts_result_t CMTS_CALL cmts_counter_increment(cmts_counter_t* counter_ptr)
@@ -2186,17 +2204,29 @@ extern "C"
 		CMTS_INVARIANT(mutex_ptr != nullptr);
 		std::atomic<mutex_data>& mutex = *(std::atomic<mutex_data>*)mutex_ptr;
 		mutex_data expected = { UINT32_MAX, UINT32_MAX };
-		return mutex.compare_exchange_weak(expected, { this_task_index, UINT32_MAX }, std::memory_order_acquire, std::memory_order_relaxed);
+		return mutex.compare_exchange_strong(expected, { this_task_index, UINT32_MAX }, std::memory_order_acquire, std::memory_order_relaxed);
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_mutex_lock(cmts_mutex_t* mutex_ptr)
 	{
 		using namespace detail::cmts;
-		CMTS_INVARIANT(cmts_is_task());
 		CMTS_INVARIANT(mutex_ptr != nullptr);
-		CMTS_INVARIANT(get_current_task().next == UINT32_MAX);
 		std::atomic<mutex_data>& mutex = *(std::atomic<mutex_data>*)mutex_ptr;
 		mutex_data prior, desired;
+#ifndef CMTS_HYBRID_MUTEX
+		CMTS_INVARIANT(cmts_is_task());
+		CMTS_INVARIANT(get_current_task().next == UINT32_MAX);
+#else
+		CMTS_UNLIKELY_IF(!cmts_is_task())
+		{
+			for (;; os::futex_await(mutex, prior))
+			{
+				for (ufast32 i = 0; i != CMTS_SPIN_THRESHOLD; ++i)
+					CMTS_LIKELY_IF(cmts_mutex_try_lock(mutex_ptr))
+						return;
+			}
+		}
+#endif
 		for (;; CMTS_SPIN_WAIT())
 		{
 			prior = mutex.load(std::memory_order_acquire);
@@ -2217,12 +2247,14 @@ extern "C"
 	CMTS_ATTR void CMTS_CALL cmts_mutex_unlock(cmts_mutex_t* mutex_ptr)
 	{
 		using namespace detail::cmts;
+#ifndef CMTS_HYBRID_MUTEX
 		CMTS_INVARIANT(cmts_is_task());
+#endif
 		CMTS_INVARIANT(mutex_ptr != nullptr);
 		std::atomic<mutex_data>& mutex = *(std::atomic<mutex_data>*)mutex_ptr;
 		mutex_data prior = { this_task_index, UINT32_MAX };
 		mutex_data desired = { UINT32_MAX, UINT32_MAX };
-		CMTS_LIKELY_IF(mutex.compare_exchange_weak(prior, desired, std::memory_order_release, std::memory_order_relaxed))
+		CMTS_LIKELY_IF(mutex.compare_exchange_strong(prior, desired, std::memory_order_release, std::memory_order_relaxed))
 			return;
 		for (;; CMTS_SPIN_WAIT())
 		{
@@ -2237,9 +2269,11 @@ extern "C"
 			CMTS_LIKELY_IF(mutex.compare_exchange_weak(prior, desired, std::memory_order_acquire, std::memory_order_relaxed))
 				break;
 		}
-		CMTS_LIKELY_IF(prior.tail == UINT32_MAX)
-			return;
-		wake_task(prior.tail);
+		CMTS_UNLIKELY_IF(prior.tail == UINT32_MAX)
+			wake_task(prior.tail);
+#ifdef CMTS_HYBRID_MUTEX
+		os::futex_signal(mutex);
+#endif
 	}
 
 	CMTS_ATTR void CMTS_CALL cmts_rcu_read_begin()
@@ -2283,21 +2317,21 @@ extern "C"
 #else
 		constexpr ufast32 BLOCK_SIZE = 256;
 		uint32 block[BLOCK_SIZE];
-		
+
 		ufast32 next;
 		for (ufast32 i = 0; i < worker_thread_count; i = next)
 		{
 			next = i + BLOCK_SIZE;
 			ufast32 max = BLOCK_SIZE;
-			
+
 			CMTS_UNLIKELY_IF(next > worker_thread_count)
 				max = worker_thread_count - i;
-			
+
 			for (ufast32 j = 0; j != BLOCK_SIZE; ++j)
 				block[j] = worker_thread_generation_counters[i + j].counter.load(std::memory_order_relaxed);
 
 			cmts_yield();
-			
+
 			for (ufast32 j = 0; j != BLOCK_SIZE; ++j)
 			{
 				for (ufast32 k = 0;;)
@@ -2474,5 +2508,4 @@ extern "C"
 	}
 
 };
-#endif
 #endif
