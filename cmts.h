@@ -328,8 +328,11 @@ CMTS_ATTR uint32_t CMTS_CALL cmts_processor_count();
 CMTS_ATTR uint32_t CMTS_CALL cmts_this_processor_index();
 CMTS_ATTR size_t CMTS_CALL cmts_default_task_stack_size();
 
-CMTS_ATTR void CMTS_CALL cmts_enable_yield_trap();
-CMTS_ATTR void CMTS_CALL cmts_disable_yield_trap();
+#ifdef CMTS_EXT_LOCAL_YIELD_COUNT
+CMTS_ATTR uint32_t CMTS_CALL cmts_local_yield_count();
+#endif
+CMTS_ATTR void CMTS_CALL cmts_debug_enable_yield_trap();
+CMTS_ATTR void CMTS_CALL cmts_debug_disable_yield_trap();
 
 CMTS_ATTR cmts_bool_t CMTS_CALL cmts_ext_debugger_enabled();
 CMTS_ATTR void CMTS_CALL cmts_ext_debugger_write(const cmts_ext_debugger_message_t* message);
@@ -724,6 +727,9 @@ thread_local static uint32 this_task_index;
 thread_local static uint32 worker_thread_index;
 #ifdef CMTS_DEBUG
 thread_local static bool yield_trap_enabled;
+#endif
+#ifdef CMTS_EXT_LOCAL_YIELD_COUNT
+thread_local static ufast32 this_thread_yield_count;
 #endif
 
 #ifdef CMTS_LOCK_LIBRARY
@@ -1802,6 +1808,9 @@ extern "C"
 #ifdef CMTS_DEBUG
 		CMTS_INVARIANT(!yield_trap_enabled);
 #endif
+#ifdef CMTS_EXT_LOCAL_YIELD_COUNT
+		++this_thread_yield_count;
+#endif
 		CMTS_INVARIANT(cmts_is_task());
 		task_pool[this_task_index].state.store(task_state::INACTIVE, std::memory_order_release);
 		yield_impl();
@@ -1891,7 +1900,15 @@ extern "C"
 		task.parameter = parameter;
 	}
 
-	CMTS_ATTR void CMTS_CALL cmts_enable_yield_trap()
+#ifdef CMTS_EXT_LOCAL_YIELD_COUNT
+	CMTS_ATTR uint32_t CMTS_CALL cmts_local_yield_count()
+	{
+		using namespace detail::cmts;
+		return this_thread_yield_count;
+	}
+#endif
+
+	CMTS_ATTR void CMTS_CALL cmts_debug_enable_yield_trap()
 	{
 		using namespace detail::cmts;
 #ifdef CMTS_DEBUG
@@ -1899,7 +1916,7 @@ extern "C"
 #endif
 	}
 
-	CMTS_ATTR void CMTS_CALL cmts_disable_yield_trap()
+	CMTS_ATTR void CMTS_CALL cmts_debug_disable_yield_trap()
 	{
 		using namespace detail::cmts;
 #ifdef CMTS_DEBUG
@@ -2282,7 +2299,7 @@ extern "C"
 		using namespace detail::cmts;
 		CMTS_INVARIANT(cmts_is_task());
 		if (rcu_depth == 0)
-			cmts_enable_yield_trap();
+			cmts_debug_enable_yield_trap();
 		++rcu_depth;
 #endif
 	}
@@ -2294,7 +2311,7 @@ extern "C"
 		CMTS_INVARIANT(cmts_is_task());
 		--rcu_depth;
 		if (rcu_depth == 0)
-			cmts_disable_yield_trap();
+			cmts_debug_disable_yield_trap();
 #endif
 	}
 
