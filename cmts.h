@@ -236,6 +236,8 @@ typedef void(CMTS_CALL* cmts_fn_debugger_message)(void* context, const cmts_ext_
 
 typedef struct cmts_ext_debug_init_options
 {
+	cmts_ext_type type;
+	const void* next;
 	void* context;
 	cmts_fn_debugger_message message_callback;
 } cmts_ext_debug_init_options;
@@ -252,6 +254,7 @@ CMTS_ATTR cmts_bool CMTS_CALL cmts_is_paused();
 CMTS_ATTR uint32_t CMTS_CALL cmts_purge(uint32_t max_trimmed_tasks);
 CMTS_ATTR uint32_t CMTS_CALL cmts_purge_all();
 CMTS_ATTR cmts_bool CMTS_CALL cmts_is_worker_thread();
+CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_index();
 CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_count();
 CMTS_ATTR cmts_bool CMTS_CALL cmts_requires_allocator();
 
@@ -682,11 +685,19 @@ CMTS_INLINE_ALWAYS static void cmts_context_switch(cmts_context* from, cmts_cont
 	SwitchToFiber(*to);
 }
 
+CMTS_INLINE_ALWAYS static void cmts_context_wide(cmts_context* ctx)
+{
+	*ctx = NULL;
+}
+
 CMTS_INLINE_ALWAYS static void cmts_context_delete(cmts_context* ctx)
 {
 	CMTS_INVARIANT(*ctx != NULL);
 	DeleteFiber(*ctx);
+	cmts_context_wide(ctx);
 }
+#else
+#error "UNSUPPORTED OS"
 #endif
 
 enum
@@ -806,6 +817,8 @@ static CMTS_THREAD_LOCAL(uint64_t) prng_last_seed;
 
 CMTS_INLINE_NEVER static void cmts_finalize_check_noinline()
 {
+	if (cmts_context_is_valid(&task_pool[task_index].ctx))
+		cmts_context_wide(&task_pool[task_index].ctx);
 	cmts_os_exit_thread(0);
 }
 
@@ -1493,6 +1506,13 @@ CMTS_ATTR uint32_t CMTS_CALL cmts_purge_all()
 CMTS_ATTR cmts_bool CMTS_CALL cmts_is_worker_thread()
 {
 	return root_task != NULL;
+}
+
+CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_index()
+{
+	CMTS_UNLIKELY_IF(!cmts_is_worker_thread())
+		return thread_count;
+	return thread_index;
 }
 
 CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_count()
