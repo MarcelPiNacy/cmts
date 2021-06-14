@@ -1,4 +1,21 @@
 # CMTS
+## Overview
+CMTS is a standalone cooperative task scheduler written in C*, based in part on Christian Gyrling's 2015 GDC talk.  
+<sub>_* A C++17 API is included separately._</sub>
+### Quick Setup
+##### Including the source code
+CMTS is a header-only library, so you don't have to compile+include+link CMTS. `cmts.h` itself contains the source code `#ifdef`'d behind the flag `CMTS_IMPLEMENTATION`:
+```cpp
+#define CMTS_IMPLEMENTATION
+#include <cmts.h>
+```
+To avoid mistakes this snippet should ideally be in its own .c/.cpp file.
+### Platform Support
+##### Operating System
+Currently only Windows (8 and over) is supported. Support for other OS will be added later.
+##### Compiler Support
+MSVC (with the /GT option on release builds) is the only supported compiler right now, mostly due to how TLS optimizations in other compilers assume no stack switching.
+### Example Code
 ```cpp
 #include <cstdio>
 #include <cmts.h>
@@ -20,24 +37,8 @@ int main(int argc, char** argv)
 #define CMTS_IMPLEMENTATION
 #include <cmts.h>
 ```
-## Overview
-CMTS is a standalone cooperative task scheduler written in C*, based in part on Christian Gyrling's 2015 GDC talk.  
-<sub>_* A C++17 API is included separately._</sub>
-### Quick Setup
-##### Including the source code
-CMTS is a header-only library, so you don't have to compile+include+link CMTS. `cmts.h` itself contains the source code `#ifdef`'d behind the flag `CMTS_IMPLEMENTATION`:
-```cpp
-#define CMTS_IMPLEMENTATION
-#include <cmts.h>
-```
-To avoid mistakes this snippet should ideally be in its own .c/.cpp file.
-### Platform Support
-##### Operating System
-Currently only Windows (8 and over) is supported. Support for other OS will be added later.
-##### Compiler Support
-MSVC (with the /GT option on release builds) is the only supported compiler right now, mostly due to how TLS optimizations in other compilers assume no stack switching.
-### Library Architecture
-CMTS can be conceptually split into three parts:
+### Library Design
+CMTS can be logically split into three parts:
 - Worker Threads
 - Task Pool
 - Synchronization Primitives
