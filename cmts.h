@@ -364,37 +364,37 @@ CMTS_EXTERN_C_END
 #define CMTS_ROL64(MASK, COUNT) (((MASK) >> (COUNT)) | ((MASK) << (64 - (COUNT))))
 #define CMTS_ROR32(MASK, COUNT) (((MASK) << (COUNT)) | ((MASK) >> (64 - (COUNT))))
 #define CMTS_ROR64(MASK, COUNT) (((MASK) >> (COUNT)) | ((MASK) << (32 - (COUNT))))
-#define CMTS_ATOMIC(TYPE) _Atomic(TYPE)
-#define CMTS_ATOMIC_LOAD_ACQ_U8(TARGET) (uint8_t)__atomic_load_n((TARGET), __ATOMIC_ACQUIRE)
-#define CMTS_ATOMIC_LOAD_ACQ_U32(TARGET) (uint32_t)__atomic_load_n((TARGET), __ATOMIC_ACQUIRE)
-#define CMTS_ATOMIC_LOAD_ACQ_U64(TARGET) (uint64_t)__atomic_load_n((TARGET), __ATOMIC_ACQUIRE)
-#define CMTS_ATOMIC_STORE_REL_U8(TARGET, VALUE) (uint8_t)__atomic_store_n((TARGET), (VALUE), __ATOMIC_RELEASE)
-#define CMTS_ATOMIC_STORE_REL_U32(TARGET, VALUE) (uint32_t)__atomic_store_n((TARGET), (VALUE), __ATOMIC_RELEASE)
-#define CMTS_ATOMIC_STORE_REL_U64(TARGET, VALUE) (uint64_t)__atomic_store_n((TARGET), (VALUE), __ATOMIC_RELEASE)
-#define CMTS_ATOMIC_XCHG_ACQ_U32(TARGET, VALUE) (uint32_t)__atomic_exchange_n((TARGET), (VALUE), __ATOMIC_ACQUIRE)
-#define CMTS_ATOMIC_XCHG_ACQ_U64(TARGET, VALUE) (uint64_t)__atomic_exchange_n((TARGET), (VALUE), __ATOMIC_ACQUIRE)
-#define CMTS_ATOMIC_XCHG_REL_U32(TARGET, VALUE) (uint32_t)__atomic_exchange_n((TARGET), (VALUE), __ATOMIC_RELEASE)
-#define CMTS_ATOMIC_XCHG_REL_U64(TARGET, VALUE) (uint64_t)__atomic_exchange_n((TARGET), (VALUE), __ATOMIC_RELEASE)
-#define CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U8(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U32(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U64(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_STRONG_REL_U8(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_STRONG_REL_U32(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_STRONG_REL_U64(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_ACQ_U8(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_ACQ_U32(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_ACQ_U64(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_REL_U8(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_REL_U32(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_CMPXCHG_REL_U64(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n((TARGET), (EXPECTED), (VALUE), 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
-#define CMTS_ATOMIC_INCREMENT_ACQ_U32(TARGET) __atomic_fetch_add((TARGET), 1, __ATOMIC_ACQUIRE)
-#define CMTS_ATOMIC_INCREMENT_ACQ_U64(TARGET) __atomic_fetch_add((TARGET), 1, __ATOMIC_ACQUIRE)
-#define CMTS_ATOMIC_INCREMENT_REL_U32(TARGET) __atomic_fetch_add((TARGET), 1, __ATOMIC_RELEASE)
-#define CMTS_ATOMIC_INCREMENT_REL_U64(TARGET) __atomic_fetch_add((TARGET), 1, __ATOMIC_RELEASE)
-#define CMTS_ATOMIC_DECREMENT_ACQ_U32(TARGET) __atomic_fetch_sub((TARGET), 1, __ATOMIC_ACQUIRE)
-#define CMTS_ATOMIC_DECREMENT_ACQ_U64(TARGET) __atomic_fetch_sub((TARGET), 1, __ATOMIC_ACQUIRE)
-#define CMTS_ATOMIC_DECREMENT_REL_U32(TARGET) __atomic_fetch_sub((TARGET), 1, __ATOMIC_RELEASE)
-#define CMTS_ATOMIC_DECREMENT_REL_U64(TARGET) __atomic_fetch_sub((TARGET), 1, __ATOMIC_RELEASE)
+#define CMTS_ATOMIC(TYPE) TYPE
+#define CMTS_ATOMIC_LOAD_ACQ_U8(TARGET) (uint8_t)__atomic_load_n(((CMTS_ATOMIC(uint8_t)*)(TARGET)), __ATOMIC_ACQUIRE)
+#define CMTS_ATOMIC_LOAD_ACQ_U32(TARGET) (uint32_t)__atomic_load_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), __ATOMIC_ACQUIRE)
+#define CMTS_ATOMIC_LOAD_ACQ_U64(TARGET) (uint64_t)__atomic_load_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), __ATOMIC_ACQUIRE)
+#define CMTS_ATOMIC_STORE_REL_U8(TARGET, VALUE) __atomic_store_n(((CMTS_ATOMIC(uint8_t)*)(TARGET)), (VALUE), __ATOMIC_RELEASE)
+#define CMTS_ATOMIC_STORE_REL_U32(TARGET, VALUE) __atomic_store_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), (VALUE), __ATOMIC_RELEASE)
+#define CMTS_ATOMIC_STORE_REL_U64(TARGET, VALUE) __atomic_store_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), (VALUE), __ATOMIC_RELEASE)
+#define CMTS_ATOMIC_XCHG_ACQ_U32(TARGET, VALUE) (uint32_t)__atomic_exchange_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), (VALUE), __ATOMIC_ACQUIRE)
+#define CMTS_ATOMIC_XCHG_ACQ_U64(TARGET, VALUE) (uint64_t)__atomic_exchange_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), (VALUE), __ATOMIC_ACQUIRE)
+#define CMTS_ATOMIC_XCHG_REL_U32(TARGET, VALUE) (uint32_t)__atomic_exchange_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), (VALUE), __ATOMIC_RELEASE)
+#define CMTS_ATOMIC_XCHG_REL_U64(TARGET, VALUE) (uint64_t)__atomic_exchange_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), (VALUE), __ATOMIC_RELEASE)
+#define CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U8(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint8_t)*)(TARGET)), (EXPECTED), (VALUE), 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U32(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), (EXPECTED), (VALUE), 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U64(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), (EXPECTED), (VALUE), 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_STRONG_REL_U8(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint8_t)*)(TARGET)), (EXPECTED), (VALUE), 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_STRONG_REL_U32(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), (EXPECTED), (VALUE), 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_STRONG_REL_U64(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), (EXPECTED), (VALUE), 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_ACQ_U8(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint8_t)*)(TARGET)), (EXPECTED), (VALUE), 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_ACQ_U32(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), (EXPECTED), (VALUE), 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_ACQ_U64(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), (EXPECTED), (VALUE), 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_REL_U8(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint8_t)*)(TARGET)), (EXPECTED), (VALUE), 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_REL_U32(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), (EXPECTED), (VALUE), 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_CMPXCHG_REL_U64(TARGET, EXPECTED, VALUE) __atomic_compare_exchange_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), (EXPECTED), (VALUE), 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_INCREMENT_ACQ_U32(TARGET) __atomic_fetch_add(((CMTS_ATOMIC(uint32_t)*)(TARGET)), UINT32_C(1), __ATOMIC_ACQUIRE)
+#define CMTS_ATOMIC_INCREMENT_ACQ_U64(TARGET) __atomic_fetch_add(((CMTS_ATOMIC(uint64_t)*)(TARGET)), UINT64_C(1), __ATOMIC_ACQUIRE)
+#define CMTS_ATOMIC_INCREMENT_REL_U32(TARGET) __atomic_fetch_add(((CMTS_ATOMIC(uint32_t)*)(TARGET)), UINT32_C(1), __ATOMIC_RELEASE)
+#define CMTS_ATOMIC_INCREMENT_REL_U64(TARGET) __atomic_fetch_add(((CMTS_ATOMIC(uint64_t)*)(TARGET)), UINT64_C(1), __ATOMIC_RELEASE)
+#define CMTS_ATOMIC_DECREMENT_ACQ_U32(TARGET) __atomic_fetch_sub(((CMTS_ATOMIC(uint32_t)*)(TARGET)), UINT32_C(1), __ATOMIC_ACQUIRE)
+#define CMTS_ATOMIC_DECREMENT_ACQ_U64(TARGET) __atomic_fetch_sub(((CMTS_ATOMIC(uint64_t)*)(TARGET)), UINT64_C(1), __ATOMIC_ACQUIRE)
+#define CMTS_ATOMIC_DECREMENT_REL_U32(TARGET) __atomic_fetch_sub(((CMTS_ATOMIC(uint32_t)*)(TARGET)), UINT32_C(1), __ATOMIC_RELEASE)
+#define CMTS_ATOMIC_DECREMENT_REL_U64(TARGET) __atomic_fetch_sub(((CMTS_ATOMIC(uint64_t)*)(TARGET)), UINT64_C(1), __ATOMIC_RELEASE)
 #elif defined(_MSC_VER) || defined(_MSVC_LANG)
 #include <intrin.h>
 #define CMTS_MSVC
@@ -780,7 +780,7 @@ CMTS_SHARED_ATTR static CMTS_ATOMIC(uint8_t) lib_lock;
 CMTS_SHARED_ATTR static CMTS_ATOMIC(uint8_t) init_state;
 CMTS_SHARED_ATTR static CMTS_ATOMIC(uint8_t) scheduler_state;
 CMTS_SHARED_ATTR static CMTS_ATOMIC(uint8_t) should_continue;
-CMTS_SHARED_ATTR static CMTS_ATOMIC(cmts_index_generation_pair) task_pool_flist;
+CMTS_SHARED_ATTR static CMTS_ATOMIC(uint64_t) task_pool_flist;
 CMTS_SHARED_ATTR static CMTS_ATOMIC(uint32_t) task_pool_bump;
 static cmts_task_queue* queues[CMTS_MAX_PRIORITY];
 static cmts_task_state* task_pool;
@@ -830,24 +830,6 @@ CMTS_INLINE_ALWAYS static uint32_t cmts_thread_remainder_range_reduce(uint32_t i
 	return cmts_remainder_range_reduce(index, thread_count, (uint8_t)thread_remainder_param);
 }
 
-CMTS_INLINE_ALWAYS static size_t cmts_wellons_hash(size_t value)
-{
-#if UINTPTR_MAX == UINT32_MAX
-	value ^= value >> 16;
-	value *= UINT32_C(0x7feb352d);
-	value ^= value >> 15;
-	value *= UINT32_C(0x846ca68b);
-	value ^= value >> 16;
-#else
-	value ^= value >> 32;
-	value *= UINT64_C(0xd6e8feb86659fd93);
-	value ^= value >> 32;
-	value *= UINT64_C(0xd6e8feb86659fd93);
-	value ^= value >> 32;
-#endif
-	return value;
-}
-
 CMTS_INLINE_ALWAYS static void cmts_romu2jr_reseed(cmts_romu2jr* state)
 {
 	uint64_t buffer[2];
@@ -865,7 +847,21 @@ CMTS_INLINE_NEVER static void cmts_romu2jr_reseed_noinline(cmts_romu2jr* state)
 
 CMTS_INLINE_ALWAYS static void cmts_romu2jr_init(cmts_romu2jr* state, size_t seed)
 {
-	state->x = state->y = cmts_wellons_hash(seed);
+	// https://nullprogram.com/blog/2018/07/31/
+#if UINTPTR_MAX == UINT32_MAX
+	seed ^= seed >> 16;
+	seed *= UINT32_C(0x7feb352d);
+	seed ^= seed >> 15;
+	seed *= UINT32_C(0x846ca68b);
+	seed ^= seed >> 16;
+#else
+	seed ^= seed >> 32;
+	seed *= UINT64_C(0xd6e8feb86659fd93);
+	seed ^= seed >> 32;
+	seed *= UINT64_C(0xd6e8feb86659fd93);
+	seed ^= seed >> 32;
+#endif
+	state->x = state->y = seed;
 	state->x ^= UINT64_C(0x9e3779b97f4a7c15);
 	state->y ^= UINT64_C(0xd1b54a32d192ed03);
 	cmts_romu2jr_reseed(state);
@@ -900,6 +896,7 @@ CMTS_INLINE_ALWAYS static uint_fast32_t cmts_pop_task()
 		for (i = 0; i != CMTS_MAX_PRIORITY; ++i)
 		{
 			queue = queues[i] + thread_index;
+			// https://github.com/dbittman/waitfree-mpsc-queue
 			CMTS_UNLIKELY_IF(CMTS_ATOMIC_LOAD_ACQ_U32(&queue->count) == 0)
 				continue;
 			CMTS_UNLIKELY_IF(CMTS_ATOMIC_LOAD_ACQ_U32(&queue->values[queue->tail]) == UINT32_MAX)
@@ -917,11 +914,12 @@ CMTS_INLINE_ALWAYS static uint_fast32_t cmts_pop_task()
 	}
 }
 
-CMTS_INLINE_ALWAYS static cmts_bool cmts_try_push_task(uint_fast32_t index, uint_fast8_t priority, size_t thread_index)
+CMTS_INLINE_ALWAYS static cmts_bool cmts_try_push_task_to(uint_fast32_t index, uint_fast8_t priority, size_t thread_index)
 {
 	cmts_task_queue* queue;
 	uint_fast32_t prior;
 	queue = queues[priority] + thread_index;
+	// https://github.com/dbittman/waitfree-mpsc-queue
 	prior = CMTS_ATOMIC_LOAD_ACQ_U32(&queue->count);
 	CMTS_UNLIKELY_IF(prior >= queue_capacity)
 		return CMTS_FALSE;
@@ -949,7 +947,7 @@ CMTS_INLINE_ALWAYS static void cmts_push_task(uint_fast32_t index)
 		for (i = 0; i != CMTS_SPIN_THRESHOLD; ++i)
 		{
 			target_thread = task->thread_affinity == thread_count ? thread_remainder((uint32_t)cmts_romu2jr_get(&prng)) : thread_index;
-			CMTS_LIKELY_IF(cmts_try_push_task(index, task->priority, target_thread))
+			CMTS_LIKELY_IF(cmts_try_push_task_to(index, task->priority, target_thread))
 				return;
 			CMTS_SPIN_WAIT;
 		}
@@ -1275,8 +1273,10 @@ CMTS_INLINE_ALWAYS static void cmts_common_init(uint8_t* buffer)
 			q->count = 0;
 		}
 	}
-	task_pool_flist.index = UINT32_MAX;
-	task_pool_flist.generation = 0;
+	cmts_index_generation_pair flist;
+	flist.index = UINT32_MAX;
+	flist.generation = 0;
+	(void)memcpy((void*)&task_pool_flist, &flist, 8);
 	for (i = 0; i != task_pool_capacity; ++i)
 	{
 		(void)memset(task_pool + i, 0, sizeof(cmts_task_state));
@@ -1395,7 +1395,7 @@ CMTS_ATTR cmts_result CMTS_CALL cmts_init(const cmts_init_options* options)
 
 CMTS_ATTR cmts_result CMTS_CALL cmts_pause()
 {
-	uint32_t expected;
+	uint8_t expected;
 	expected = CMTS_SCHEDULER_STATE_ONLINE;
 	CMTS_UNLIKELY_IF(!CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U8(&scheduler_state, &expected, CMTS_SCHEDULER_STATE_PAUSED))
 		return cmts_is_initialized() ? CMTS_OK : CMTS_ERROR_LIBRARY_UNINITIALIZED;
@@ -1406,7 +1406,7 @@ CMTS_ATTR cmts_result CMTS_CALL cmts_pause()
 
 CMTS_ATTR cmts_result CMTS_CALL cmts_resume()
 {
-	uint32_t expected;
+	uint8_t expected;
 	expected = CMTS_SCHEDULER_STATE_PAUSED;
 	CMTS_UNLIKELY_IF(!CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U8(&scheduler_state, &expected, CMTS_SCHEDULER_STATE_ONLINE))
 		return cmts_is_initialized() ? CMTS_OK : CMTS_ERROR_LIBRARY_UNINITIALIZED;
@@ -2043,13 +2043,13 @@ CMTS_ATTR void CMTS_CALL cmts_hazard_ptr_protect(cmts_hazard_ptr* hptr, void* pt
 #ifndef CMTS_DEBUG
 	CMTS_ATOMIC_STORE_REL_U32(hp, ptr);
 #else
-	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_U32(hp, ptr) == 0);
+	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_U32(hp, (uint32_t)ptr) == 0);
 #endif
 #else
 #ifndef CMTS_DEBUG
 	CMTS_ATOMIC_STORE_REL_U64(hp, ptr);
 #else
-	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_U64(hp, ptr) == 0);
+	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_U64(hp, (uint64_t)ptr) == 0);
 #endif
 #endif
 }
