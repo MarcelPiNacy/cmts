@@ -1172,7 +1172,7 @@ static thread_return_type CMTS_THREAD_CALLING_CONVENTION cmts_thread_entry_point
 			cmts_release_task(task_index);
 			CMTS_LIKELY_IF(k == CMTS_SYNC_TYPE_NONE)
 				continue;
-			callback = k != CMTS_SYNC_TYPE_COUNTER ? (cmts_fn_sync_callback)cmts_counter_decrement : (cmts_fn_sync_callback)cmts_event_signal;
+			callback = k != CMTS_SYNC_TYPE_COUNTER ? (cmts_fn_sync_callback)cmts_event_signal : (cmts_fn_sync_callback)cmts_counter_decrement;
 			(void)callback(sync_object);
 		}
 	}
@@ -1319,7 +1319,7 @@ static cmts_result cmts_library_init_custom(const cmts_init_options* options)
 	uint8_t* buffer;
 	thread_count = options->thread_count;
 	task_pool_capacity = options->max_tasks;
-	queue_capacity = (uint32_t)cmts_round_pow2(task_pool_capacity / thread_count);
+	queue_capacity = (uint32_t)cmts_round_pow2(task_pool_capacity / options->thread_count);
 	queue_capacity_mask = queue_capacity - 1;
 	task_stack_size = (uint32_t)options->task_stack_size;
 	buffer_size = (uint32_t)cmts_required_memory_size();
