@@ -18,42 +18,38 @@
 
 #ifndef CMTS_CPP_INCLUDED
 #define CMTS_CPP_INCLUDED
-
+#define CMTS_FORMAT_RESULT
 #include "cmts.h"
-#include <iterator>
-#include <string_view>
-#ifdef CMTS_DEBUG
 #include <cassert>
-#endif
+#include <variant>
+#include <vector>
+#include <string_view>
 
-namespace cmts
+namespace CMTS
 {
-#ifdef UNICODE
-	using string_view_type = std::string_view;
-#else
-	using string_view_type = std::wstring_view;
-#endif
+	using TaskID = uint64_t;
+	using TaskFn = cmts_fn_task;
+	using AllocateFn = cmts_fn_allocate;
+	using DeallocateFn = cmts_fn_deallocate;
+	using DebugMessageFn = cmts_fn_debugger_message;
+	using StringRef = std::basic_string_view<CMTS_CHAR>;
 
-	using task_function_pointer = void(CMTS_PTR*)(void* parameter);
-	using allocate_function_pointer = void* (CMTS_PTR*)(size_t size);
-	using deallocate_function_pointer = bool(CMTS_PTR*)(void* memory, size_t size);
-	using destructor_function_pointer = void(CMTS_PTR*)(void* object);
-
-	enum class result : int8_t
+	enum class Result : uint32_t
 	{
 		OK = 0,
 		SYNC_OBJECT_EXPIRED = 1,
 		NOT_READY = 2,
-		TIMEOUT = 3,
+		ALREADY_INITIALIZED = 3,
+		INITIALIZATION_IN_PROGRESS = 4,
 
 		ERROR_MEMORY_ALLOCATION = -1,
 		ERROR_MEMORY_DEALLOCATION = -2,
-		ERROR_WORKER_THREAD_CREATION = -3,
-		ERROR_THREAD_AFFINITY_FAILURE = -4,
-		ERROR_RESUME_WORKER_THREAD = -5,
-		ERROR_SUSPEND_WORKER_THREAD = -6,
-		ERROR_WORKER_THREAD_TERMINATION = -7,
-		ERROR_AWAIT_WORKER_THREAD = -8,
+		ERROR_THREAD_CREATION = -3,
+		ERROR_THREAD_AFFINITY = -4,
+		ERROR_RESUME_THREAD = -5,
+		ERROR_SUSPEND_THREAD = -6,
+		ERROR_THREAD_TERMINATION = -7,
+		ERROR_AWAIT_THREAD = -8,
 		ERROR_TASK_POOL_CAPACITY = -9,
 		ERROR_AFFINITY = -10,
 		ERROR_TASK_ALLOCATION = -11,
@@ -61,655 +57,677 @@ namespace cmts
 		ERROR_LIBRARY_UNINITIALIZED = -13,
 		ERROR_OS_INIT = -14,
 
-		RESULT_MIN_ENUM = ERROR_LIBRARY_UNINITIALIZED,
-		RESULT_MAX_ENUM = NOT_READY,
+		BEGIN_ENUM = ERROR_LIBRARY_UNINITIALIZED,
+		END_ENUM = INITIALIZATION_IN_PROGRESS,
 	};
 
-	enum class sync_type : uint8_t
+	enum class MessageSeverity : uint8_t
+	{
+		INFO,
+		WARNING,
+		ERROR,
+	};
+
+	enum class SyncObjectType : uint8_t
 	{
 		NONE,
 		EVENT,
 		COUNTER,
 
-		MIN_ENUM = NONE,
-		MAX_ENUM = COUNTER,
+		BEGIN_ENUM = NONE,
+		END_ENUM = COUNTER + 1,
 	};
 
-	enum class dispatch_flags : uint64_t
+	enum class InitFlags : uint64_t
 	{
-		FORCE = 1,
 	};
 
-	enum class init_flags : uint64_t
+	constexpr InitFlags operator ~ (InitFlags other) { return (InitFlags)~(uint64_t)other; }
+	constexpr InitFlags operator & (InitFlags lhs, InitFlags rhs) { return (InitFlags)((uint64_t)lhs & (uint64_t)lhs); }
+	constexpr InitFlags operator | (InitFlags lhs, InitFlags rhs) { return (InitFlags)((uint64_t)lhs | (uint64_t)lhs); }
+	constexpr InitFlags operator ^ (InitFlags lhs, InitFlags rhs) { return (InitFlags)((uint64_t)lhs ^ (uint64_t)lhs); }
+
+	enum class DispatchFlags : uint64_t
 	{
-		USE_AFFINITY = 1,
+		FORCE = 1
 	};
 
-	enum class extension_type : uint32_t
+	constexpr DispatchFlags operator ~ (DispatchFlags other) { return (DispatchFlags)~(uint64_t)other; }
+	constexpr DispatchFlags operator & (DispatchFlags lhs, DispatchFlags rhs) { return (DispatchFlags)((uint64_t)lhs & (uint64_t)lhs); }
+	constexpr DispatchFlags operator | (DispatchFlags lhs, DispatchFlags rhs) { return (DispatchFlags)((uint64_t)lhs | (uint64_t)lhs); }
+	constexpr DispatchFlags operator ^ (DispatchFlags lhs, DispatchFlags rhs) { return (DispatchFlags)((uint64_t)lhs ^ (uint64_t)lhs); }
+
+	enum class ExtensionType : uint32_t
 	{
-		TASK_NAME,
 		DEBUGGER,
 
-		MIN_ENUM = TASK_NAME,
-		MAX_ENUM = DEBUGGER,
+		BEGIN_ENUM = DEBUGGER,
+		END_ENUM = DEBUGGER + 1,
 	};
 
-	enum class task_id : cmts_task_id_t {};
-
-	struct init_options
+	struct MemoryRequirements
 	{
-		allocate_function_pointer allocate_function;
-		size_t task_stack_size;
+		size_t size, alignment;
+	};
+
+	class Fence;
+	class Event;
+	class Counter;
+	class Mutex;
+
+	using SyncObjectPtrVariant = std::variant<
+		Event*,
+		Counter*>;
+
+	struct InitOptions
+	{
+		AllocateFn allocate_function;
+		uint32_t task_stack_size;
 		uint32_t thread_count;
-		init_flags flags;
+		const uint32_t* thread_affinities;
+		InitFlags flags;
 		uint32_t max_tasks;
-		uint32_t enabled_extension_count;
-		const extension_type* enabled_extensions;
-		const void* ext;
+		const void* next_ext;
 	};
 
-	struct dispatch_options
+	struct DispatchOptions
 	{
-		dispatch_flags flags;
-		task_id* out_task_id;
+		DispatchFlags flags;
+		cmts_task_id* out_task_id;
+		const uint32_t* locked_thread;
 		void* parameter;
-		void* sync_object;
-		sync_type sync_object_type;
+		SyncObjectPtrVariant sync_object;
 		uint8_t priority;
-		const void* ext;
+		const void* next_ext;
 	};
 
-	struct minimize_options
+	class Fence
 	{
-		const void* ext;
-		uint64_t timeout_nanoseconds;
+		using Base = cmts_fence;
+		Base impl;
+	public:
+
+		constexpr Fence()
+			: impl(CMTS_FENCE_INIT)
+		{
+		}
+
+		~Fence() = default;
+
+		Fence(const Fence&) = delete;
+		Fence& operator=(const Fence&) = delete;
+
+		void Signal();
+		void Await();
+		void Reset();
 	};
 
-	namespace sync
+	class Event
 	{
-		struct fence : cmts_fence_t
+		using Base = cmts_event;
+		Base impl;
+	public:
+
+		constexpr Event()
+			: impl(CMTS_EVENT_INIT)
 		{
-			constexpr fence() noexcept
-				: cmts_fence_t(CMTS_FENCE_INIT)
-			{
-			}
+		}
 
-			fence(const fence&) = delete;
-			fence& operator=(const fence&) = delete;
-			~fence() = default;
+		~Event() = default;
 
-			inline void await() noexcept
-			{
-				cmts_fence_await((cmts_fence_t*)this);
-			}
+		Event(const Event&) = delete;
+		Event& operator=(const Event&) = delete;
 
-			inline void signal() noexcept
-			{
-				cmts_fence_signal((cmts_fence_t*)this);
-			}
+		Result GetState() const;
+		Result Signal();
+		Result Await();
+		Result Reset();
+	};
+
+	class Counter : private cmts_counter
+	{
+		using Base = cmts_counter;
+	public:
+
+		constexpr Counter(uint64_t start_value)
+			: Base(CMTS_COUNTER_INIT(start_value))
+		{
+		}
+
+		Counter() = default;
+		~Counter() = default;
+
+		Counter(const Counter&) = delete;
+		Counter& operator=(const Counter&) = delete;
+
+		Result GetState() const;
+		uint64_t GetValue() const;
+		Result Increment();
+		Result Decrement();
+		Result Await();
+		Result Reset(uint64_t new_start_value);
+	};
+
+	class Mutex
+	{
+		using Base = cmts_mutex;
+		Base impl;
+	public:
+
+		constexpr Mutex()
+			: impl(CMTS_MUTEX_INIT)
+		{
+		}
+
+		~Mutex() = default;
+
+		Mutex(const Mutex&) = delete;
+		Mutex& operator=(const Mutex&) = delete;
+
+		bool IsLocked() const;
+		bool TryLock();
+		void Lock();
+		void UnLock();
+	};
+
+	Result Init();
+	Result Init(const InitOptions& options);
+	Result Pause();
+	Result Resume();
+	void FinalizeSignal();
+	Result FinalizeAwait(DeallocateFn deallocate = nullptr);
+	Result Terminate(DeallocateFn deallocate = nullptr);
+	bool RequiresAllocator();
+	bool IsInitialized();
+	bool IsOnline();
+	bool IsPaused();
+	bool IsWorkerThread();
+	bool IsTask();
+	uint32_t WorkerThreadCount();
+	size_t ProcessorCount();
+	size_t ThisProcessorIndex();
+	size_t DefaultTaskStackSize();
+	uint32_t Purge(uint32_t max_purged_count);
+	uint32_t PurgeAll();
+	Result Dispatch(TaskFn entry_point);
+	Result Dispatch(TaskFn entry_point, DispatchOptions& options);
+	void Yield();
+	void Exit();
+	TaskID ThisTaskID();
+
+	namespace Task
+	{
+		TaskID New();
+		uint8_t GetPriority(TaskID task_id);
+		void SetPriority(TaskID task_id, uint8_t new_priority);
+		void* GetParameter(TaskID task_id);
+		void SetParameter(TaskID task_id, void* new_parameter);
+		TaskFn GetFunction(TaskID task_id);
+		void SetFunction(TaskID task_id, TaskFn new_function);
+		void AttachSyncObject(TaskID task_id, Event& event);
+		void AttachSyncObject(TaskID task_id, Counter& counter);
+		void Sleep(TaskID task_id);
+		void Wake(TaskID task_id);
+		bool IsValid(TaskID task_id);
+		bool IsSleeping(TaskID task_id);
+		bool IsRunning(TaskID task_id);
+		void Dispatch(TaskID task_id);
+		void Delete(TaskID task_id);
+	}
+
+	namespace RCU
+	{
+		void ReadBegin();
+		void ReadEnd();
+		void Sync();
+		MemoryRequirements GetSnapshotMemoryRequirements();
+		void GetSnapshot(void* snapshot_buffer);
+		uint32_t TrySync(const void* snapshot_buffer, uint32_t prior_result = 0);
+		void Sync(const void* snapshot_buffer);
+	}
+
+	class HazardPtr
+	{
+		using Base = cmts_hazard_ptr;
+		Base impl;
+	public:
+
+		static MemoryRequirements GetMemoryRequirements();
+		void Init(void* buffer);
+		void Protect(void* ptr);
+		void Release();
+		bool IsUnreachable(void* ptr) const;
+		void* GetBuffer();
+	};
+
+	namespace Debug
+	{
+		struct MessageInfo
+		{
+			StringRef message;
+			MessageSeverity severity;
+			const void* next_ext;
 		};
 
-		struct event : cmts_event_t
-		{
-			constexpr event() noexcept
-				: cmts_event_t(CMTS_EVENT_INIT)
-			{
-			}
-
-			event(const event&) = delete;
-			event& operator=(const event&) = delete;
-			~event() = default;
-
-			inline result reset() noexcept
-			{
-				return (result)cmts_event_reset((cmts_event_t*)this);
-			}
-
-			inline result await() noexcept
-			{
-				return (result)cmts_event_await((cmts_event_t*)this);
-			}
-
-			inline result signal() noexcept
-			{
-				return (result)cmts_event_signal((cmts_event_t*)this);
-			}
-		};
-
-		struct counter : cmts_counter_t
-		{
-			constexpr counter(uint32_t start_value) noexcept
-				: cmts_counter_t(CMTS_COUNTER_INIT(start_value))
-			{
-			}
-
-			counter(const counter&) = delete;
-			counter& operator=(const counter&) = delete;
-			~counter() = default;
-
-			inline result reset(uint32_t new_value) noexcept
-			{
-				return (result)cmts_counter_reset((cmts_counter_t*)this, new_value);
-			}
-
-			inline result await() noexcept
-			{
-				return (result)cmts_counter_await((cmts_counter_t*)this);
-			}
-
-			inline uint32_t value() const noexcept
-			{
-				return cmts_counter_value((const cmts_counter_t*)this);
-			}
-
-			inline result operator++(int unused) noexcept
-			{
-				return (result)cmts_counter_increment((cmts_counter_t*)this);
-			}
-
-			inline result operator++() noexcept
-			{
-				return (result)cmts_counter_increment((cmts_counter_t*)this);
-			}
-
-			inline result operator--(int unused) noexcept
-			{
-				return (result)cmts_counter_decrement((cmts_counter_t*)this);
-			}
-
-			inline result operator--() noexcept
-			{
-				return (result)cmts_counter_decrement((cmts_counter_t*)this);
-			}
-		};
-
-		struct mutex : cmts_mutex_t
-		{
-			constexpr mutex() noexcept
-				: cmts_mutex_t(CMTS_MUTEX_INIT)
-			{
-			}
-
-			mutex(const mutex&) = delete;
-			mutex& operator=(const mutex&) = delete;
-			~mutex() = default;
-
-			inline bool is_locked() const noexcept
-			{
-				return cmts_mutex_is_locked((const cmts_mutex_t*)this);
-			}
-
-			inline bool try_lock() noexcept
-			{
-				return cmts_mutex_try_lock((cmts_mutex_t*)this);
-			}
-
-			inline void lock() noexcept
-			{
-				cmts_mutex_lock((cmts_mutex_t*)this);
-			}
-
-			inline void unlock() noexcept
-			{
-				cmts_mutex_unlock((cmts_mutex_t*)this);
-			}
-		};
+		bool IsEnabled();
+		bool EnableYieldTrap(bool enable);
+		void Write(StringRef message, MessageSeverity severity = MessageSeverity::INFO);
+		void Write(const MessageInfo& message);
 	}
 
-
-
-	inline result dispatch(void(*function)()) noexcept
+	namespace Util
 	{
-		return (result)cmts_dispatch((task_function_pointer)function, nullptr);
+#ifdef CMTS_FORMAT_RESULT
+		StringRef Format(Result result);
+#endif
 	}
+}
 
-	inline result dispatch(task_function_pointer function) noexcept
+
+
+#ifdef CMTS_CPP_IMPLEMENTATION
+namespace CMTS
+{
+	void Fence::Signal()
 	{
-		return (result)cmts_dispatch(function, nullptr);
+		cmts_fence_signal((Base*)this);
 	}
 
-	inline result dispatch(task_function_pointer function, dispatch_options& options) noexcept
+	void Fence::Await()
 	{
-		return (result)cmts_dispatch(function, (cmts_dispatch_options_t*)&options);
+		cmts_fence_await((Base*)this);
 	}
 
-	inline bool is_task() noexcept
+	void Fence::Reset()
 	{
-		return cmts_is_task();
+		cmts_fence_init((Base*)this);
 	}
 
-
-
-	inline result init() noexcept
+	Result Event::GetState() const
 	{
-		return (result)cmts_init(nullptr);
+		return (Result)cmts_event_state((Base*)this);
 	}
 
-	inline result init(const init_options& options) noexcept
+	Result Event::Signal()
 	{
-		return (result)cmts_init((cmts_init_options_t*)&options);
+		return (Result)cmts_event_signal((Base*)this);
 	}
 
-	inline result pause() noexcept
+	Result Event::Await()
 	{
-		return (result)cmts_pause();
+		return (Result)cmts_event_await((Base*)this);
 	}
 
-	inline result resume() noexcept
+	Result Event::Reset()
 	{
-		return (result)cmts_resume();
+		return (Result)cmts_event_reset((Base*)this);
 	}
 
-	inline result exit_signal() noexcept
+	Result Counter::GetState() const
+	{
+		return (Result)cmts_counter_state((Base*)this);
+	}
+
+	uint64_t Counter::GetValue() const
+	{
+		return cmts_counter_value((Base*)this);
+	}
+
+	Result Counter::Increment()
+	{
+		return (Result)cmts_counter_increment((Base*)this);
+	}
+
+	Result Counter::Decrement()
+	{
+		return (Result)cmts_counter_decrement((Base*)this);
+	}
+
+	Result Counter::Await()
+	{
+		return (Result)cmts_counter_await((Base*)this);
+	}
+
+	Result Counter::Reset(uint64_t new_start_value)
+	{
+		return (Result)cmts_counter_reset((Base*)this, new_start_value);
+	}
+
+	bool Mutex::IsLocked() const
+	{
+		return cmts_mutex_is_locked((Base*)this);
+	}
+
+	bool Mutex::TryLock()
+	{
+		return cmts_mutex_try_lock((Base*)this);
+	}
+
+	void Mutex::Lock()
+	{
+		cmts_mutex_lock((Base*)this);
+	}
+
+	void Mutex::UnLock()
+	{
+		cmts_mutex_unlock((Base*)this);
+	}
+
+	Result Init()
+	{
+		cmts_init(nullptr);
+	}
+
+	Result Init(const InitOptions& options)
+	{
+		return (Result)cmts_init((const cmts_init_options*)&options);
+	}
+
+	Result Pause()
+	{
+		return (Result)cmts_pause();
+	}
+
+	Result Resume()
+	{
+		return (Result)cmts_resume();
+	}
+
+	void FinalizeSignal()
 	{
 		cmts_finalize_signal();
 	}
 
-	inline result exit_await(deallocate_function_pointer deallocate) noexcept
+	Result FinalizeAwait(DeallocateFn deallocate)
 	{
-		return (result)cmts_finalize_await(deallocate);
+		return (Result)cmts_finalize_await(deallocate);
 	}
 
-	inline result terminate(deallocate_function_pointer deallocate) noexcept
+	Result Terminate(DeallocateFn deallocate)
 	{
-		return (result)cmts_terminate(deallocate);
+		return (Result)cmts_terminate(deallocate);
 	}
 
-	inline bool is_initialized() noexcept
+	bool RequiresAllocator()
+	{
+		return cmts_requires_allocator();
+	}
+
+	bool IsInitialized()
 	{
 		return cmts_is_initialized();
 	}
 
-	inline bool is_online() noexcept
+	bool IsOnline()
 	{
 		return cmts_is_online();
 	}
 
-	inline bool is_paused()
+	bool IsPaused()
 	{
 		return cmts_is_paused();
 	}
 
-	inline result purge(uint32_t max_trimmed_tasks, deallocate_function_pointer deallocate)
+	bool IsWorkerThread()
 	{
-		return (result)cmts_purge(max_trimmed_tasks, deallocate);
+		return cmts_is_worker_thread();
 	}
 
-	inline result purge_all(deallocate_function_pointer deallocate)
+	bool IsTask()
 	{
-		return (result)cmts_purge_all(deallocate);
+		return cmts_is_task();
 	}
 
-	inline uint32_t worker_thread_count()
+	uint32_t WorkerThreadCount()
 	{
 		return cmts_worker_thread_count();
 	}
 
-
-
-	namespace task
+	size_t ProcessorCount()
 	{
-		[[nodiscard]]
-		inline task_id allocate()
-		{
-			return (task_id)cmts_task_allocate();
-		}
-
-		inline void deallocate(task_id id)
-		{
-			cmts_task_deallocate((cmts_task_id_t)id);
-		}
-
-		inline uint8_t get_priority(task_id id)
-		{
-			return cmts_task_get_priority((cmts_task_id_t)id);
-		}
-
-		inline void set_priority(task_id id, uint8_t priority)
-		{
-			cmts_task_set_priority((cmts_task_id_t)id, priority);
-		}
-
-		inline task_function_pointer get_function(task_id id)
-		{
-			return cmts_task_get_function((cmts_task_id_t)id);
-		}
-
-		inline void set_function(task_id id, cmts_task_function_pointer_t function)
-		{
-			cmts_task_set_function((cmts_task_id_t)id, function);
-		}
-
-		inline void* get_parameter(task_id id)
-		{
-			return cmts_task_get_parameter((cmts_task_id_t)id);
-		}
-
-		inline void set_parameter(task_id id, void* parameter)
-		{
-			cmts_task_set_parameter((cmts_task_id_t)id, parameter);
-		}
-
-		inline void attach_event(task_id id, sync::event& event)
-		{
-			cmts_task_attach_event((cmts_task_id_t)id, (cmts_event_t*)&event);
-		}
-
-		inline void attach_counter(task_id id, sync::counter& counter)
-		{
-			cmts_task_attach_counter((cmts_task_id_t)id, (cmts_counter_t*)&counter);
-		}
-
-		inline void sleep(task_id id)
-		{
-			cmts_task_sleep((cmts_task_id_t)id);
-		}
-
-		inline void wake(task_id id)
-		{
-			cmts_task_wake((cmts_task_id_t)id);
-		}
-
-		inline bool is_valid(task_id id)
-		{
-			return cmts_task_is_valid((cmts_task_id_t)id);
-		}
-
-		inline bool is_sleeping(task_id id)
-		{
-			return cmts_task_is_sleeping((cmts_task_id_t)id);
-		}
-
-		inline bool is_running(task_id id)
-		{
-			return cmts_task_is_running((cmts_task_id_t)id);
-		}
-
-		inline void dispatch(task_id id)
-		{
-			cmts_task_dispatch((cmts_task_id_t)id);
-		}
+		return cmts_processor_count();
 	}
 
-
-
-	namespace this_task
+	size_t ThisProcessorIndex()
 	{
-		inline void yield()
-		{
-			cmts_yield();
-		}
-
-		inline void exit()
-		{
-			cmts_exit();
-		}
-
-		inline task_id id()
-		{
-			return (task_id)cmts_this_task_id();
-		}
+		return cmts_this_processor_index();
 	}
 
-
-
-	namespace this_thread
+	size_t DefaultTaskStackSize()
 	{
-		inline uint32_t index()
-		{
-			return cmts_this_worker_thread_index();
-		}
-
-		inline void enable_yield_trap()
-		{
-			cmts_enable_yield_trap();
-		}
-
-		inline void disable_yield_trap()
-		{
-			cmts_disable_yield_trap();
-		}
+		return cmts_default_task_stack_size();
 	}
 
-
-
-	namespace platform
+	uint32_t Purge(uint32_t max_purged_count)
 	{
-		inline uint32_t processor_count()
-		{
-			return cmts_processor_count();
-		}
-
-		inline uint32_t this_processor_index()
-		{
-			return cmts_this_processor_index();
-		}
-
-		inline uint32_t default_task_stack_size()
-		{
-			return cmts_default_task_stack_size();
-		}
+		return cmts_purge(max_purged_count);
 	}
 
-
-
-	namespace ext
+	uint32_t PurgeAll()
 	{
-		namespace debugger
-		{
-			enum class message_severity : uint8_t
-			{
-				INFO,
-				WARNING,
-				ERROR
-			};
-
-			struct message_info
-			{
-				const CMTS_CHAR* message_ptr;
-				size_t message_length;
-				message_severity severity;
-				const void* ext;
-			};
-
-			using message_function_pointer = void(CMTS_CALL*)(void* context, const message_info* message);
-
-			struct init_info
-			{
-				const void* next;
-				extension_type ext_type = extension_type::DEBUGGER;
-				void* context;
-				message_function_pointer message_callback;
-			};
-
-			inline bool is_enabled()
-			{
-				return cmts_ext_debugger_enabled();
-			}
-		}
-
-		namespace task_name
-		{
-			inline bool is_enabled()
-			{
-				return cmts_ext_task_name_enabled();
-			}
-
-			inline void set(task_id id, string_view_type name)
-			{
-				cmts_ext_task_name_set((cmts_task_id_t)id, name.data(), name.size());
-			}
-
-			inline void clear(task_id id)
-			{
-				cmts_ext_task_name_clear((cmts_task_id_t)id);
-			}
-
-			inline string_view_type get(task_id id)
-			{
-				const CMTS_CHAR* prior_ptr;
-				size_t prior_size;
-				cmts_ext_task_name_get((cmts_task_id_t)id, &prior_ptr, &prior_size);
-				return string_view_type(prior_ptr, prior_size);
-			}
-
-			inline string_view_type swap(task_id id, string_view_type name)
-			{
-				const CMTS_CHAR* prior_ptr;
-				size_t prior_size;
-				cmts_ext_task_name_swap((cmts_task_id_t)id, name.data(), name.size(), &prior_ptr, &prior_size);
-				return string_view_type(prior_ptr, prior_size);
-			}
-		}
+		return cmts_purge_all();
 	}
 
-
-
-	namespace rcu
+	Result Dispatch(TaskFn entry_point)
 	{
-		inline void read_begin()
-		{
-			cmts_rcu_read_begin();
-		}
-
-		inline void read_end()
-		{
-			cmts_rcu_read_end();
-		}
-
-		inline void sync()
-		{
-			cmts_rcu_sync();
-		}
-
-		inline size_t snapshot_size()
-		{
-			return cmts_rcu_snapshot_size();
-		}
-
-		inline void get_snapshot(void* snapshot)
-		{
-			cmts_rcu_snapshot(snapshot);
-		}
-
-		inline uint32_t try_snapshot_sync(void* snapshot, uint32_t prior_result)
-		{
-			return cmts_rcu_try_snapshot_sync(snapshot, prior_result);
-		}
-
-		inline void snapshot_sync(void* snapshot)
-		{
-			cmts_rcu_snapshot_sync(snapshot);
-		}
+		return (Result)cmts_dispatch(entry_point, nullptr);
 	}
 
-
-
-	namespace util
+	Result Dispatch(TaskFn entry_point, DispatchOptions& options)
 	{
-		template <typename I, typename F>
-		void parallel_for(I begin, I end, F&& body, uint8_t priority = 0)
-		{
-#ifdef CMTS_DEBUG
-			assert(is_task());
+		constexpr size_t offset = offsetof(DispatchOptions, sync_object);
+		cmts_dispatch_options o;
+		(void)memcpy(&o, &options, offset);
+		o.sync_type = (cmts_sync_type)options.sync_object.index();
+		std::visit([&](auto e) { o.sync_object = e; }, options.sync_object);
+		o.priority = options.priority;
+		o.next_ext = options.next_ext;
+		return (Result)cmts_dispatch(entry_point, &o);
+	}
+
+	void Yield()
+	{
+		cmts_yield();
+	}
+
+	void Exit()
+	{
+		cmts_exit();
+	}
+
+	TaskID ThisTaskID()
+	{
+		return (TaskID)cmts_this_task_id();
+	}
+
+	TaskID Task::New()
+	{
+		return cmts_task_allocate();
+	}
+
+	uint8_t Task::GetPriority(TaskID task_id)
+	{
+		return cmts_task_get_priority(task_id);
+	}
+
+	void Task::SetPriority(TaskID task_id, uint8_t new_priority)
+	{
+		cmts_task_set_priority(task_id, new_priority);
+	}
+
+	void* Task::GetParameter(TaskID task_id)
+	{
+		return cmts_task_get_parameter(task_id);
+	}
+
+	void Task::SetParameter(TaskID task_id, void* new_parameter)
+	{
+		cmts_task_set_parameter(task_id, new_parameter);
+	}
+
+	TaskFn Task::GetFunction(TaskID task_id)
+	{
+		return cmts_task_get_function(task_id);
+	}
+
+	void Task::SetFunction(TaskID task_id, TaskFn new_function)
+	{
+		cmts_task_set_function(task_id, new_function);
+	}
+
+	void Task::AttachSyncObject(TaskID task_id, Event& event)
+	{
+		cmts_task_attach_event(task_id, (cmts_event*)&event);
+	}
+
+	void Task::AttachSyncObject(TaskID task_id, Counter& counter)
+	{
+		cmts_task_attach_counter(task_id, (cmts_counter*)&counter);
+	}
+
+	void Task::Sleep(TaskID task_id)
+	{
+		cmts_task_sleep(task_id);
+	}
+
+	void Task::Wake(TaskID task_id)
+	{
+		cmts_task_wake(task_id);
+	}
+
+	bool Task::IsValid(TaskID task_id)
+	{
+		return cmts_is_valid_task_id(task_id);
+	}
+
+	bool Task::IsSleeping(TaskID task_id)
+	{
+		return cmts_task_is_sleeping(task_id);
+	}
+
+	bool Task::IsRunning(TaskID task_id)
+	{
+		return cmts_task_is_running(task_id);
+	}
+
+	void Task::Dispatch(TaskID task_id)
+	{
+		cmts_task_dispatch(task_id);
+	}
+
+	void Task::Delete(TaskID task_id)
+	{
+		cmts_task_deallocate(task_id);
+	}
+
+	void RCU::ReadBegin()
+	{
+		cmts_rcu_read_begin();
+	}
+
+	void RCU::ReadEnd()
+	{
+		cmts_rcu_read_end();
+	}
+
+	void RCU::Sync()
+	{
+		cmts_rcu_sync();
+	}
+
+	MemoryRequirements RCU::GetSnapshotMemoryRequirements()
+	{
+		MemoryRequirements r;
+		cmts_rcu_snapshot_requirements((cmts_memory_requirements*)&r);
+		return r;
+	}
+
+	void RCU::GetSnapshot(void* snapshot_buffer)
+	{
+		cmts_rcu_snapshot(snapshot_buffer);
+	}
+
+	uint32_t RCU::TrySync(const void* snapshot_buffer, uint32_t prior_result)
+	{
+		return cmts_rcu_try_snapshot_sync(snapshot_buffer, prior_result);
+	}
+
+	void RCU::Sync(const void* snapshot_buffer)
+	{
+		cmts_rcu_snapshot_sync(snapshot_buffer);
+	}
+
+	MemoryRequirements HazardPtr::GetMemoryRequirements()
+	{
+		MemoryRequirements r;
+		cmts_hazard_ptr_requirements((cmts_memory_requirements*)&r);
+		return r;
+	}
+
+	void HazardPtr::Init(void* buffer)
+	{
+		cmts_hazard_ptr_init((Base*)this, buffer);
+	}
+
+	void HazardPtr::Protect(void* ptr)
+	{
+		cmts_hazard_ptr_protect((Base*)this, ptr);
+	}
+
+	void HazardPtr::Release()
+	{
+		cmts_hazard_ptr_release((Base*)this);
+	}
+
+	bool HazardPtr::IsUnreachable(void* ptr) const
+	{
+		cmts_hazard_ptr_is_unreachable((Base*)this, ptr);
+	}
+
+	void* HazardPtr::GetBuffer()
+	{
+		return (void*)impl;
+	}
+
+	bool Debug::IsEnabled()
+	{
+		return cmts_ext_debug_enabled();
+	}
+
+	bool Debug::EnableYieldTrap(bool enable)
+	{
+		return cmts_ext_debug_enable_yield_trap(true);
+	}
+
+	void Debug::Write(StringRef message, MessageSeverity severity)
+	{
+		cmts_ext_debug_message m;
+		m.message = message.data();
+		m.message_length = message.size();
+		m.severity = (cmts_ext_debug_message_severity)severity;
+		m.next_ext = nullptr;
+		cmts_ext_debug_write(&m);
+	}
+
+	void Debug::Write(const MessageInfo& message)
+	{
+		cmts_ext_debug_message m;
+		m.message = message.message.data();
+		m.message_length = message.message.size();
+		m.severity = (cmts_ext_debug_message_severity)message.severity;
+		m.next_ext = message.next_ext;
+		cmts_ext_debug_write(&m);
+	}
+
+#ifdef CMTS_FORMAT_RESULT
+	StringRef Util::Format(Result result)
+	{
+		const CMTS_CHAR* text;
+		size_t size;
+		text = cmts_format_result((cmts_result)result, &size);
+		return StringRef(text, size);
+	}
 #endif
-
-			if (begin == end)
-				return;
-
-			struct loop_state
-			{
-				F function;
-				I iterator;
-				sync::fence fence;
-			};
-
-			loop_state state = { ::std::forward<F>(body), begin };
-
-			uint32_t delta;
-			if constexpr (std::is_integral_v<I>)
-				delta = end - begin;
-			else
-				delta = std::distance(begin, end);
-
-#ifdef CMTS_DEBUG
-			assert(delta <= UINT32_MAX);
-#endif
-
-			auto counter = sync::counter(delta);
-
-			dispatch_options options = {};
-			options.flags = dispatch_flags::FORCE;
-			options.sync_object_type = sync_type::COUNTER;
-			options.sync_object = &counter;
-			options.priority = priority;
-
-			for (; state.iterator != end; ++state.iterator)
-			{
-				state.fence = {};
-				dispatch([&](void* param)
-				{
-					loop_state& state = *(loop_state*)param;
-					I it = state.iterator;
-					state.fence.signal();
-					state.function(it);
-				}, options);
-				state.fence.await();
-			}
-			counter.await();
-		}
-
-		template <typename I, typename K, typename F>
-		void parallel_for(I begin, I end, K step, F&& body, uint8_t priority = 0)
-		{
-#ifdef CMTS_DEBUG
-			assert(is_task());
-#endif
-
-			if (begin == end)
-				return;
-
-			struct loop_state
-			{
-				F function;
-				I iterator;
-				sync::fence fence;
-			};
-
-			loop_state state = { ::std::forward<F>(body), begin };
-
-			uint32_t delta;
-			if constexpr (std::is_integral_v<I>)
-				delta = end - begin;
-			else
-				delta = std::distance(begin, end);
-
-#ifdef CMTS_DEBUG
-			assert(delta <= UINT32_MAX);
-#endif
-
-			auto counter = sync::counter(delta);
-
-			dispatch_options options = {};
-			options.flags = dispatch_flags::FORCE;
-			options.sync_object_type = sync_type::COUNTER;
-			options.sync_object = &counter;
-			options.priority = priority;
-
-			for (; state.iterator != end; state.iterator += step)
-			{
-				state.fence = {};
-				dispatch([&](void* param)
-				{
-					loop_state& state = *(loop_state*)param;
-					I it = state.iterator;
-					state.fence.signal();
-					state.function(it);
-				}, options);
-				state.fence.await();
-			}
-			counter.await();
-		}
-	}
 }
-#endif
+#endif // CMTS_CPP_IMPLEMENTATION
+#endif // CMTS_CPP_INCLUDED
