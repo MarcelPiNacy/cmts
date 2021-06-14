@@ -333,7 +333,6 @@ CMTS_EXTERN_C_END
 #endif
 
 #ifdef CMTS_IMPLEMENTATION
-
 #define CMTS_ROUND_CACHE_LINE_SIZE(VALUE) ((VALUE) + (CMTS_CACHE_LINE_SIZE - 1)) & (~(CMTS_CACHE_LINE_SIZE - 1))
 #define CMTS_MAKE_HANDLE(INDEX, GENERATION) ((uint64_t)(INDEX) | ((uint64_t)(GENERATION) << 32))
 #define CMTS_BREAK_HANDLE(H, OUT_INDEX, OUT_GENERATION) OUT_INDEX = (uint32_t)(H); OUT_GENERATION = (uint32_t)((H) >> 32)
@@ -482,7 +481,7 @@ CMTS_INLINE_NEVER static void cmts_debug_message(cmts_ext_debug_message_severity
 	CMTS_UNLIKELY_IF(debugger_callback == NULL)
 		return;
 	cmts_ext_debug_message message;
-	message.ext = NULL;
+	message.next_ext = NULL;
 	message.message = text;
 	message.message_length = size;
 	message.severity = severity;
@@ -1337,7 +1336,7 @@ static cmts_result cmts_library_init_custom(const cmts_init_options* options)
 		r = cmts_os_init_threads(threads, thread_count, thread_stack_size, (LPTHREAD_START_ROUTINE)cmts_thread_entry_point);
 	CMTS_UNLIKELY_IF(r != CMTS_OK)
 		return r;
-	for (const cmts_ext_header* node = (const cmts_ext_header*)options->ext; node != NULL; node = node->next)
+	for (const cmts_ext_header* node = (const cmts_ext_header*)options->next_ext; node != NULL; node = node->next)
 	{
 		r = cmts_handle_extension(options, node);
 		CMTS_UNLIKELY_IF(r != CMTS_OK)
