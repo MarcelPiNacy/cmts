@@ -350,7 +350,22 @@ CMTS_EXTERN_C_END
 
 #if defined(__GNUC__) || defined(__clang__)
 #define CMTS_GCC_OR_CLANG
-#define CMTS_MSVC
+#ifdef __alpha__
+#define CMTS_ARCH_ALPHA
+#elif defined(__x86_64__)
+#define CMTS_ARCH_X64
+#elif defined(__arm__)
+#define CMTS_ARCH_ARM
+#ifdef __thumb__
+#define CMTS_ARCH_ARM_THUMB
+#endif
+#elif defined(__i386__)
+#define CMTS_ARCH_X86
+#elif defined(__ia64__)
+#define CMTS_ARCH_ITANIUM
+#elif defined(__powerpc__)
+#define CMTS_ARCH_POWERPC
+#endif
 #define CMTS_THREAD_LOCAL(TYPE) __thread TYPE
 #define CMTS_ALIGNAS(K) __attribute__((aligned(K)))
 #define CMTS_INLINE_ALWAYS __attribute__((always_inline))
@@ -358,9 +373,9 @@ CMTS_EXTERN_C_END
 #define CMTS_LIKELY_IF(CONDITION) if (__builtin_expect((CONDITION), 1))
 #define CMTS_UNLIKELY_IF(CONDITION) if (__builtin_expect((CONDITION), 0))
 #define CMTS_ASSUME(CONDITION) __builtin_assume((CONDITION))
-#ifdef __ARM__
+#ifdef CMTS_ARCH_ARM
 #define CMTS_SPIN_WAIT __yield()
-#elif defined(__X86__)
+#elif defined(CMTS_ARCH_X64)
 #define CMTS_SPIN_WAIT __builtin_ia32_pause()
 #else
 #define CMTS_SPIN_WAIT
@@ -407,6 +422,22 @@ CMTS_EXTERN_C_END
 #elif defined(_MSC_VER) || defined(_MSVC_LANG)
 #include <intrin.h>
 #define CMTS_MSVC
+#ifdef _M_ALPHA
+#define CMTS_ARCH_ALPHA
+#elif defined(_M_AMD64)
+#define CMTS_ARCH_X64
+#elif defined(_M_ARM)
+#define CMTS_ARCH_ARM
+#ifdef _M_ARMT
+#define CMTS_ARCH_ARM_THUMB
+#endif
+#elif defined(_M_IX86)
+#define CMTS_ARCH_X86
+#elif defined(_M_IA64)
+#define CMTS_ARCH_ITANIUM
+#elif defined(_M_PPC)
+#define CMTS_ARCH_POWERPC
+#endif
 #define CMTS_THREAD_LOCAL(TYPE) __declspec(thread) TYPE
 #define CMTS_ALIGNAS(K) __declspec(align(K))
 #define CMTS_INLINE_ALWAYS __forceinline
@@ -422,11 +453,11 @@ CMTS_EXTERN_C_END
 #define CMTS_ROL64(MASK, COUNT) _rotl64((MASK), (COUNT))
 #define CMTS_ROR32(MASK, COUNT) _rotr((MASK), (COUNT))
 #define CMTS_ROR64(MASK, COUNT) _rotr64((MASK), (COUNT))
-#ifdef _M_ARM
+#ifdef CMTS_ARCH_ARM
 #define CMTS_SPIN_WAIT __yield()
 #define CMTS_MSVC_ATOMIC_ACQ_SUFFIX(NAME) NAME##_acq
 #define CMTS_MSVC_ATOMIC_REL_SUFFIX(NAME) NAME##_acq
-#elif defined(_M_IX86) || defined(_M_X64) || defined(_M_AMD64)
+#elif defined(CMTS_ARCH_X86) || defined(CMTS_ARCH_X64)
 #define CMTS_SPIN_WAIT _mm_pause()
 #define CMTS_MSVC_ATOMIC_ACQ_SUFFIX(NAME) NAME
 #define CMTS_MSVC_ATOMIC_REL_SUFFIX(NAME) NAME
@@ -522,7 +553,6 @@ CMTS_INLINE_NEVER static void cmts_debug_message(cmts_ext_debug_message_severity
 #define CMTS_TARGET_WINDOWS
 #include <Windows.h>
 #include <bcrypt.h>
-typedef PVOID cmts_context;
 typedef HANDLE thread_type;
 typedef DWORD thread_return_type;
 #define CMTS_THREAD_CALLING_CONVENTION __stdcall
@@ -688,6 +718,8 @@ CMTS_INLINE_ALWAYS static cmts_bool cmts_os_csprng(void* out, size_t out_size)
 	return BCRYPT_SUCCESS(((BCryptGenRandom_T)GetProcAddress(lib, "BCryptGenRandom"))(NULL, (PUCHAR)out, (ULONG)out_size, (ULONG)BCRYPT_USE_SYSTEM_PREFERRED_RNG));
 }
 
+typedef PVOID cmts_context;
+
 CMTS_INLINE_ALWAYS static cmts_bool cmts_context_init(cmts_context* ctx, cmts_fn_task function, void* param, size_t stack_size)
 {
 	CMTS_INVARIANT(function != NULL);
@@ -708,7 +740,7 @@ CMTS_INLINE_ALWAYS static void cmts_context_switch(cmts_context* from, cmts_cont
 	SwitchToFiber(*to);
 }
 
-CMTS_INLINE_ALWAYS static void cmts_context_wide(cmts_context* ctx)
+CMTS_INLINE_ALWAYS static void cmts_context_wipe(cmts_context* ctx)
 {
 	*ctx = NULL;
 }
@@ -717,10 +749,8 @@ CMTS_INLINE_ALWAYS static void cmts_context_delete(cmts_context* ctx)
 {
 	CMTS_INVARIANT(*ctx != NULL);
 	DeleteFiber(*ctx);
-	cmts_context_wide(ctx);
+	cmts_context_wipe(ctx);
 }
-#else
-#error "UNSUPPORTED OS"
 #endif
 
 enum
@@ -841,7 +871,7 @@ static CMTS_THREAD_LOCAL(uint64_t) prng_last_seed;
 CMTS_INLINE_NEVER static void cmts_finalize_check_noinline()
 {
 	if (cmts_context_is_valid(&task_pool[task_index].ctx))
-		cmts_context_wide(&task_pool[task_index].ctx);
+		cmts_context_wipe(&task_pool[task_index].ctx);
 	cmts_os_exit_thread(0);
 }
 
