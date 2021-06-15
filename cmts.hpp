@@ -22,7 +22,6 @@
 #include "cmts.h"
 #include <cassert>
 #include <variant>
-#include <vector>
 #include <string_view>
 
 namespace CMTS
@@ -31,7 +30,6 @@ namespace CMTS
 	using TaskFn = cmts_fn_task;
 	using AllocateFn = cmts_fn_allocate;
 	using DeallocateFn = cmts_fn_deallocate;
-	using DebugMessageFn = cmts_fn_debugger_message;
 	using StringRef = std::basic_string_view<CMTS_CHAR>;
 
 	enum class Result : uint32_t
@@ -56,9 +54,11 @@ namespace CMTS
 		ERROR_FUTEX = -12,
 		ERROR_LIBRARY_UNINITIALIZED = -13,
 		ERROR_OS_INIT = -14,
+		INVALID_EXTENSION_TYPE = -15,
+		UNSUPPORTED_EXTENSION = -16,
 
-		BEGIN_ENUM = ERROR_LIBRARY_UNINITIALIZED,
-		END_ENUM = INITIALIZATION_IN_PROGRESS,
+		BEGIN_ENUM = UNSUPPORTED_EXTENSION,
+		END_ENUM = INITIALIZATION_IN_PROGRESS + 1,
 	};
 
 	enum class MessageSeverity : uint8_t
@@ -66,6 +66,9 @@ namespace CMTS
 		INFO,
 		WARNING,
 		ERROR,
+
+		BEGIN_ENUM = INFO,
+		END_ENUM = ERROR + 1,
 	};
 
 	enum class SyncObjectType : uint8_t
@@ -297,11 +300,23 @@ namespace CMTS
 		void Protect(void* ptr);
 		void Release();
 		bool IsUnreachable(void* ptr) const;
+		void* Get();
 		void* GetBuffer();
+		const void* GetBuffer() const;
 	};
 
 	namespace Debug
 	{
+		using MessageFn = cmts_fn_debugger_message;
+
+		struct InitOptions
+		{
+			const void* next;
+			cmts_ext_type type;
+			void* context;
+			MessageFn message_callback;
+		};
+
 		struct MessageInfo
 		{
 			StringRef message;
@@ -684,7 +699,17 @@ namespace CMTS
 		cmts_hazard_ptr_is_unreachable((Base*)this, ptr);
 	}
 
+	void* HazardPtr::Get()
+	{
+		return cmts_hazard_ptr_get((Base*)this);
+	}
+
 	void* HazardPtr::GetBuffer()
+	{
+		return (void*)impl;
+	}
+
+	const void* HazardPtr::GetBuffer() const
 	{
 		return (void*)impl;
 	}

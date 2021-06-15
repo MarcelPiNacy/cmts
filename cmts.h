@@ -139,9 +139,11 @@ typedef enum cmts_result
 	CMTS_ERROR_FUTEX = -12,
 	CMTS_ERROR_LIBRARY_UNINITIALIZED = -13,
 	CMTS_ERROR_OS_INIT = -14,
+	CMTS_ERROR_INVALID_EXTENSION_TYPE = -15,
+	CMTS_ERROR_UNSUPPORTED_EXTENSION = -16,
 
-	CMTS_RESULT_BEGIN_ENUM = CMTS_ERROR_LIBRARY_UNINITIALIZED,
-	CMTS_RESULT_END_ENUM = CMTS_INITIALIZATION_IN_PROGRESS,
+	CMTS_RESULT_BEGIN_ENUM = CMTS_ERROR_UNSUPPORTED_EXTENSION,
+	CMTS_RESULT_END_ENUM = CMTS_INITIALIZATION_IN_PROGRESS + 1,
 } cmts_result;
 
 typedef enum cmts_sync_type
@@ -222,6 +224,9 @@ typedef enum cmts_ext_debug_message_severity
 	CMTS_EXT_DEBUGGER_MESSAGE_SEVERITY_INFO,
 	CMTS_EXT_DEBUGGER_MESSAGE_SEVERITY_WARNING,
 	CMTS_EXT_DEBUGGER_MESSAGE_SEVERITY_ERROR,
+
+	CMTS_EXT_DEBUGGER_MESSAGE_SEVERITY_BEGIN_ENUM = CMTS_EXT_DEBUGGER_MESSAGE_SEVERITY_INFO,
+	CMTS_EXT_DEBUGGER_MESSAGE_SEVERITY_END_ENUM = CMTS_EXT_DEBUGGER_MESSAGE_SEVERITY_ERROR + 1,
 } cmts_ext_debug_message_severity;
 
 typedef struct cmts_ext_debug_message
@@ -236,8 +241,8 @@ typedef void(CMTS_CALL* cmts_fn_debugger_message)(void* context, const cmts_ext_
 
 typedef struct cmts_ext_debug_init_options
 {
-	cmts_ext_type type;
 	const void* next;
+	cmts_ext_type type;
 	void* context;
 	cmts_fn_debugger_message message_callback;
 } cmts_ext_debug_init_options;
@@ -317,6 +322,7 @@ CMTS_ATTR void CMTS_CALL cmts_hazard_ptr_requirements(cmts_memory_requirements* 
 CMTS_ATTR void CMTS_CALL cmts_hazard_ptr_init(cmts_hazard_ptr* hptr, void* buffer);
 CMTS_ATTR void CMTS_CALL cmts_hazard_ptr_protect(cmts_hazard_ptr* hptr, void* ptr);
 CMTS_ATTR void CMTS_CALL cmts_hazard_ptr_release(cmts_hazard_ptr* hptr);
+CMTS_ATTR void* CMTS_CALL cmts_hazard_ptr_get(cmts_hazard_ptr* hptr);
 CMTS_ATTR cmts_bool CMTS_CALL cmts_hazard_ptr_is_unreachable(const cmts_hazard_ptr* hptr, const void* ptr);
 
 CMTS_ATTR size_t CMTS_CALL cmts_processor_count();
@@ -460,6 +466,22 @@ CMTS_EXTERN_C_END
 #define CMTS_ATOMIC_DECREMENT_ACQ_U64(TARGET) ((uint64_t)(CMTS_MSVC_ATOMIC_ACQ_SUFFIX(_InterlockedDecrement64)((volatile long long*)(TARGET))) + 1)
 #define CMTS_ATOMIC_DECREMENT_REL_U32(TARGET) ((uint32_t)(CMTS_MSVC_ATOMIC_REL_SUFFIX(_InterlockedDecrement)((volatile long*)(TARGET))) + 1)
 #define CMTS_ATOMIC_DECREMENT_REL_U64(TARGET) ((uint64_t)(CMTS_MSVC_ATOMIC_REL_SUFFIX(_InterlockedDecrement64)((volatile long long*)(TARGET))) + 1)
+#endif
+
+#if UINTPTR_MAX == UINT32_MAX
+#define CMTS_ATOMIC_LOAD_ACQ_UPTR			CMTS_ATOMIC_LOAD_ACQ_U32
+#define CMTS_ATOMIC_STORE_REL_UPTR			CMTS_ATOMIC_STORE_REL_U32
+#define CMTS_ATOMIC_XCHG_ACQ_UPTR			CMTS_ATOMIC_XCHG_ACQ_U32
+#define CMTS_ATOMIC_XCHG_REL_UPTR			CMTS_ATOMIC_XCHG_REL_U32
+#define CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_UPTR	CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U32
+#define CMTS_ATOMIC_CMPXCHG_STRONG_REL_UPTR	CMTS_ATOMIC_CMPXCHG_STRONG_REL_U32
+#else
+#define CMTS_ATOMIC_LOAD_ACQ_UPTR			CMTS_ATOMIC_LOAD_ACQ_U64
+#define CMTS_ATOMIC_STORE_REL_UPTR			CMTS_ATOMIC_STORE_REL_U64
+#define CMTS_ATOMIC_XCHG_ACQ_UPTR			CMTS_ATOMIC_XCHG_ACQ_U64
+#define CMTS_ATOMIC_XCHG_REL_UPTR			CMTS_ATOMIC_XCHG_REL_U64
+#define CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_UPTR	CMTS_ATOMIC_CMPXCHG_STRONG_ACQ_U64
+#define CMTS_ATOMIC_CMPXCHG_STRONG_REL_UPTR	CMTS_ATOMIC_CMPXCHG_STRONG_REL_U64
 #endif
 
 #define CMTS_SHARED_ATTR CMTS_ALIGNAS(CMTS_CACHE_LINE_SIZE)
@@ -1251,7 +1273,15 @@ CMTS_INLINE_ALWAYS static size_t cmts_required_memory_size()
 
 static cmts_result cmts_handle_extension(const cmts_init_options* options, const cmts_ext_header* header)
 {
-	return CMTS_OK;
+	switch (header->type)
+	{
+	case CMTS_EXT_TYPE_DEBUGGER:
+		debugger_callback = ((const cmts_ext_debug_init_options*)header)->message_callback;
+		debugger_context = ((const cmts_ext_debug_init_options*)header)->context;
+		return CMTS_OK;
+	default:
+		return CMTS_ERROR_INVALID_EXTENSION_TYPE;
+	}
 }
 
 CMTS_INLINE_ALWAYS static void cmts_common_init(uint8_t* buffer)
@@ -1331,6 +1361,7 @@ static cmts_result cmts_library_init_custom(const cmts_init_options* options)
 	cmts_result r;
 	size_t buffer_size;
 	uint8_t* buffer;
+	const cmts_ext_header* ext;
 	thread_count = options->thread_count;
 	task_pool_capacity = options->max_tasks;
 	queue_capacity = (uint32_t)cmts_round_pow2(task_pool_capacity / options->thread_count);
@@ -1350,9 +1381,9 @@ static cmts_result cmts_library_init_custom(const cmts_init_options* options)
 		r = cmts_os_init_threads(threads, thread_count, thread_stack_size, (LPTHREAD_START_ROUTINE)cmts_thread_entry_point);
 	CMTS_UNLIKELY_IF(r != CMTS_OK)
 		return r;
-	for (const cmts_ext_header* node = (const cmts_ext_header*)options->next_ext; node != NULL; node = node->next)
+	for (ext = (const cmts_ext_header*)options->next_ext; ext != NULL; ext = ext->next)
 	{
-		r = cmts_handle_extension(options, node);
+		r = cmts_handle_extension(options, ext);
 		CMTS_UNLIKELY_IF(r != CMTS_OK)
 			return r;
 	}
@@ -2058,54 +2089,38 @@ CMTS_ATTR void CMTS_CALL cmts_hazard_ptr_init(cmts_hazard_ptr* hptr, void* buffe
 
 CMTS_ATTR void CMTS_CALL cmts_hazard_ptr_protect(cmts_hazard_ptr* hptr, void* ptr)
 {
-	CMTS_ATOMIC(void*)* hp;
-	hp = (CMTS_ATOMIC(void*)*)((uint8_t*)hptr + thread_index * CMTS_CACHE_LINE_SIZE);
-#if UINTPTR_MAX == UINT32_MAX
-#ifndef CMTS_DEBUG
-	CMTS_ATOMIC_STORE_REL_U32(hp, ptr);
+	CMTS_ASSERT(cmts_is_task());
+#ifdef CMTS_DEBUG
+	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_UPTR((CMTS_ATOMIC(void*)*)hptr + thread_index, (size_t)ptr) == NULL);
 #else
-	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_U32(hp, (uint32_t)ptr) == 0);
-#endif
-#else
-#ifndef CMTS_DEBUG
-	CMTS_ATOMIC_STORE_REL_U64(hp, ptr);
-#else
-	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_U64(hp, (uint64_t)ptr) == 0);
-#endif
+	CMTS_ATOMIC_STORE_REL_UPTR((CMTS_ATOMIC(void*)*)hptr + thread_index, (size_t)ptr);
 #endif
 }
 
 CMTS_ATTR void CMTS_CALL cmts_hazard_ptr_release(cmts_hazard_ptr* hptr)
 {
-	CMTS_ATOMIC(void*)* hp;
-	hp = (CMTS_ATOMIC(void*)*)((uint8_t*)hptr + thread_index * CMTS_CACHE_LINE_SIZE);
-#if UINTPTR_MAX == UINT32_MAX
-#ifndef CMTS_DEBUG
-	CMTS_ATOMIC_STORE_REL_U32(hp, 0);
+	CMTS_ASSERT(cmts_is_task());
+#ifdef CMTS_DEBUG
+	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_UPTR((CMTS_ATOMIC(void*)*)hptr + thread_index, 0) != NULL);
 #else
-	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_U32(hp, 0) == 0);
+	CMTS_ATOMIC_STORE_REL_UPTR((CMTS_ATOMIC(void*)*)hptr + thread_index, 0);
 #endif
-#else
-#ifndef CMTS_DEBUG
-	CMTS_ATOMIC_STORE_REL_U64(hp, 0);
-#else
-	CMTS_ASSERT(CMTS_ATOMIC_XCHG_REL_U64(hp, 0) == 0);
-#endif
-#endif
+}
+
+CMTS_ATTR void* CMTS_CALL cmts_hazard_ptr_get(cmts_hazard_ptr* hptr)
+{
+	CMTS_ASSERT(cmts_is_task());
+	return (void*)CMTS_ATOMIC_LOAD_ACQ_UPTR((CMTS_ATOMIC(void*)*)hptr + thread_index);
 }
 
 CMTS_ATTR cmts_bool CMTS_CALL cmts_hazard_ptr_is_unreachable(const cmts_hazard_ptr* hptr, const void* ptr)
 {
 	uint8_t* i;
 	uint8_t* end;
-	end = (uint8_t*)hptr + thread_count * CMTS_CACHE_LINE_SIZE;
-	for (i = (uint8_t*)hptr; i != end; i += CMTS_CACHE_LINE_SIZE)
+	end = (uint8_t*)hptr + thread_count * sizeof(void*);
+	for (i = (uint8_t*)hptr; i != end; i += sizeof(void*))
 	{
-#if UINTPTR_MAX == UINT32_MAX
-		CMTS_UNLIKELY_IF((void*)CMTS_ATOMIC_LOAD_ACQ_U32((CMTS_ATOMIC(void*)*)i) == ptr)
-#else
-		CMTS_UNLIKELY_IF((void*)CMTS_ATOMIC_LOAD_ACQ_U64((CMTS_ATOMIC(void*)*)i) == ptr)
-#endif
+		CMTS_UNLIKELY_IF((void*)CMTS_ATOMIC_LOAD_ACQ_UPTR((CMTS_ATOMIC(void*)*)i) == ptr)
 			return CMTS_FALSE;
 	}
 	return CMTS_TRUE;
