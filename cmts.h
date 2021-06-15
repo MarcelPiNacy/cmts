@@ -499,6 +499,7 @@ CMTS_INLINE_NEVER static void cmts_debug_message(cmts_ext_debug_message_severity
 #ifdef _WIN32
 #define CMTS_TARGET_WINDOWS
 #include <Windows.h>
+#include <bcrypt.h>
 typedef PVOID cmts_context;
 typedef HANDLE thread_type;
 typedef DWORD thread_return_type;
@@ -511,7 +512,6 @@ static HMODULE sync_library;
 static WaitOnAddress_t wait_on_address;
 static WakeByAddressSingle_t wake_by_address_single;
 #endif
-typedef NTSTATUS(WINAPI* BCryptGenRandom_t)(BCRYPT_ALG_HANDLE hAlgorithm, PUCHAR pbBuffer, ULONG cbBuffer, ULONG dwFlags);
 static uint64_t qpc_frequency;
 
 CMTS_INLINE_ALWAYS static cmts_bool cmts_os_init()
@@ -656,13 +656,14 @@ CMTS_INLINE_ALWAYS static uint64_t cmts_os_time_ns(uint64_t timestamp)
 
 CMTS_INLINE_ALWAYS static cmts_bool cmts_os_csprng(void* out, size_t out_size)
 {
+	typedef NTSTATUS(WINAPI* BCryptGenRandom_T)(BCRYPT_ALG_HANDLE, PUCHAR, ULONG, ULONG);
 	HMODULE lib;
 	lib = GetModuleHandle(TEXT("Bcrypt.lib"));
 	CMTS_UNLIKELY_IF(lib == NULL)
 		lib = GetModuleHandle(TEXT("Bcrypt.dll"));
 	CMTS_UNLIKELY_IF(lib == NULL)
 		return CMTS_FALSE;
-	return ((BCryptGenRandom_t)GetProcAddress(lib, "BCryptGenRandom"))(NULL, (PUCHAR)out, (ULONG)out_size, (ULONG)BCRYPT_USE_SYSTEM_PREFERRED_RNG) == CMC_STATUS_SUCCESS;
+	return BCRYPT_SUCCESS(((BCryptGenRandom_T)GetProcAddress(lib, "BCryptGenRandom"))(NULL, (PUCHAR)out, (ULONG)out_size, (ULONG)BCRYPT_USE_SYSTEM_PREFERRED_RNG));
 }
 
 CMTS_INLINE_ALWAYS static cmts_bool cmts_context_init(cmts_context* ctx, cmts_fn_task function, void* param, size_t stack_size)
@@ -1892,7 +1893,7 @@ CMTS_ATTR void CMTS_CALL cmts_mutex_lock(cmts_mutex* mutex)
 	CMTS_ASSERT(cmts_is_task());
 #else
 	CMTS_UNLIKELY_IF(!cmts_is_task())
-		for (;; cmts_os_futex_await((CMTS_ATOMIC(uint32_t)*)c, &prior.queue.head))
+		for (;; cmts_os_futex_await((CMTS_ATOMIC(uint32_t)*)c, &prior.queue.head, 4))
 			for (i = 0; i != CMTS_SPIN_THRESHOLD; ++i)
 				CMTS_LIKELY_IF(cmts_mutex_try_lock(mutex))
 					return;
