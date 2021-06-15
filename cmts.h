@@ -507,11 +507,11 @@ typedef DWORD thread_return_type;
 #if defined(CMTS_NO_BUSY_WAIT) || defined(CMTS_HYBRID_MUTEX)
 typedef BOOL (WINAPI *WaitOnAddress_t)(volatile VOID* Address, PVOID CompareAddress, SIZE_T AddressSize, DWORD dwMilliseconds);
 typedef VOID (WINAPI *WakeByAddressSingle_t)(PVOID Address);
-typedef NTSTATUS (WINAPI *BCryptGenRandom_t)(BCRYPT_ALG_HANDLE hAlgorithm, PUCHAR pbBuffer, ULONG cbBuffer, ULONG dwFlags);
 static HMODULE sync_library;
 static WaitOnAddress_t wait_on_address;
 static WakeByAddressSingle_t wake_by_address_single;
 #endif
+typedef NTSTATUS(WINAPI* BCryptGenRandom_t)(BCRYPT_ALG_HANDLE hAlgorithm, PUCHAR pbBuffer, ULONG cbBuffer, ULONG dwFlags);
 static uint64_t qpc_frequency;
 
 CMTS_INLINE_ALWAYS static cmts_bool cmts_os_init()
