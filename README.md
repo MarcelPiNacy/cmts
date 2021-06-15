@@ -38,6 +38,8 @@ int main(int argc, char** argv)
 #include <cmts.h>
 ```
 ### Library Design
+![overview_image](https://github.com/MarcelPiNacy/cmts/blob/master/docs/images/CMTS.png)  
+CMTS can be boiled down into a thread pool + coroutine scheduler.
 CMTS can be logically split into three parts:
 - Worker Threads
 - Task Pool
@@ -53,15 +55,15 @@ CMTS implements the following synchronization objects:
 - Fences
 - Events
 - Counters
-###### Mutexes  (`cmts_mutex_t`, `CMTS::Mutex`)
+###### Mutexes  (`cmts_mutex`, `CMTS::Mutex`)
 Just a plain old mutex. However, like all other CMTS synchronization primitives, they can only be used within a task (with some minor exceptions).
-###### Fences (`cmts_fence_t`, `CMTS::Fence`)
+###### Fences (`cmts_fence`, `CMTS::Fence`)
 Fences are the most lightweight primitive in the library.
 Their use cases are limited in comparison to events and counters, since they are essentially a container for a single sleeping task.
 Fences are useful mainly when implementing parallel for-loops.
-###### Events (`cmts_event_t`, `CMTS::Event`)
+###### Events (`cmts_event`, `CMTS::Event`)
 Events allow for 1 or more tasks to wait until a condition holds true.
 Like condition variables, events are conceptually a queue (or list) of sleeping tasks.
 Events can be attached to a task, which will signal the event once it runs to completion.
-###### Counters (`cmts_counter_t`, `CMTS::Counter`)
+###### Counters (`cmts_counter`, `CMTS::Counter`)
 Like events, counters hold tasks that are waiting for a particular condition, in this case the counter's value reaching zero. Counters can also be attached to tasks.
