@@ -109,7 +109,7 @@ CMTS_EXTERN_C_BEGIN
 #ifdef __cplusplus
 typedef bool cmts_bool;
 #else
-typedef _Bool cmts_boolean;
+typedef _Bool cmts_bool;
 #endif
 typedef uint64_t cmts_task_id;
 typedef void(CMTS_PTR* cmts_fn_task)(void* parameter);
