@@ -21,6 +21,7 @@
 #define CMTS_FORMAT_RESULT
 #include "cmts.h"
 #include <cassert>
+#include <iterator>
 #include <variant>
 #include <string_view>
 
@@ -246,6 +247,7 @@ namespace CMTS
 	bool IsPaused();
 	bool IsWorkerThread();
 	bool IsTask();
+	uint32_t WorkerThreadIndex();
 	uint32_t WorkerThreadCount();
 	size_t ProcessorCount();
 	size_t ThisProcessorIndex();
@@ -257,6 +259,37 @@ namespace CMTS
 	void Yield();
 	void Exit();
 	TaskID ThisTaskID();
+
+	template <typename I, typename F, typename K = ptrdiff_t>
+	void ParallelForEach(I begin, I end, F&& body, uint8_t priority = 0, K step = 0)
+	{
+		struct LoopContext
+		{
+			F loop_body;
+			I iterator;
+			Fence fence;
+		};
+
+		Counter counter = Counter((uint64_t)std::distance(begin, end));
+		LoopContext context = { begin, std::forward<F>(body) };
+		DispatchOptions options = {};
+		options.flags = DispatchFlags::FORCE;
+		options.parameter = &context;
+		options.sync_object = &counter;
+		for (; context.iterator != end; ++context.iterator)
+		{
+			context.fence.Reset();
+			Dispatch([](void* ptr)
+			{
+				LoopContext& ctx = *(LoopContext*)ptr;
+				I it = ctx.iterator;
+				ctx.fence.Signal();
+				ctx.loop_body(it);
+			});
+			context.fence.Await();
+		}
+		counter.Await();
+	}
 
 	namespace Task
 	{
@@ -491,6 +524,11 @@ namespace CMTS
 	bool IsTask()
 	{
 		return cmts_is_task();
+	}
+
+	uint32_t WorkerThreadIndex()
+	{
+		return cmts_worker_thread_index();
 	}
 
 	uint32_t WorkerThreadCount()
