@@ -1,5 +1,6 @@
 # CMTS
-CMTS is a header-only cooperative task scheduling library written in C, based in part on Christian Gyrling's 2015 GDC talk.  
+CMTS is a header-only cooperative task scheduling library, based on Christian Gyrling's 2015 GDC talk.
+The core library is written in C, with a C++17 API available in a separate file.
 ### Example Code
 ```cpp
 #include <cstdio>
@@ -51,8 +52,7 @@ CMTS implements the following synchronization primitives:
 - Currently, worker threads use Daniel Bittman's excellent MPSC wait-free queue: https://github.com/dbittman/waitfree-mpsc-queue
 - When pushing a task, the PRNG used to select a target worker thread is RomuDuoJr (Reseeded every 2^32 ns with the CSPRNG of the target OS).
 - The maximum size of the task pool is 2^32 - 1 to avoid the cost of 16-byte atomic operations.
-### C++17 API
-A higher level C++17 API is also available in its own separate file:
+### C++17 Example
 ```cpp
 #include <cstdio>
 #include <cmts.hpp>
