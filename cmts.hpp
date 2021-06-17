@@ -315,7 +315,7 @@ namespace CMTS
 	{
 		TaskID id;
 	public:
-		static TaskRef New();
+		static TaskRef NewTask();
 		uint8_t GetPriority() const;
 		void SetPriority(uint8_t new_priority);
 		void* GetParameter() const;
@@ -690,7 +690,7 @@ namespace CMTS
 		cmts_task_deallocate(task_id);
 	}
 
-	TaskRef TaskRef::New()
+	TaskRef TaskRef::NewTask()
 	{
 		TaskRef r;
 		r.id = Task::New();
