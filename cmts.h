@@ -2284,7 +2284,7 @@ CMTS_ATTR cmts_bool CMTS_CALL cmts_mutex_try_lock(cmts_mutex* mutex)
 CMTS_ATTR void CMTS_CALL cmts_mutex_lock(cmts_mutex* mutex)
 {
 	cmts_mutex_data* c;
-	uint32_t prior, desired;
+	uint32_t prior;
 	CMTS_ASSERT(cmts_is_task());
 	c = (cmts_mutex_data*)mutex;
 	prior = CMTS_ATOMIC_XCHG_ACQ_U32(c, task_index);
@@ -2414,7 +2414,7 @@ CMTS_ATTR void CMTS_CALL cmts_rcu_snapshot_sync(const void* snapshot_buffer)
 CMTS_ATTR void CMTS_CALL cmts_hazard_ptr_requirements(cmts_memory_requirements* out_requirements)
 {
 	out_requirements->size = (size_t)thread_count * sizeof(void*);
-#ifdef UINTPTR_MAX == UINT32_MAX
+#if UINTPTR_MAX == UINT32_MAX
 	out_requirements->alignment_log2 = 2;
 #else
 	out_requirements->alignment_log2 = 3;
