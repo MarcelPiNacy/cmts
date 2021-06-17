@@ -241,7 +241,6 @@ namespace CMTS
 	void FinalizeSignal();
 	Result FinalizeAwait(DeallocateFn deallocate = nullptr);
 	Result Terminate(DeallocateFn deallocate = nullptr);
-	bool RequiresAllocator();
 	bool IsInitialized();
 	bool IsOnline();
 	bool IsPaused();
@@ -324,7 +323,7 @@ namespace CMTS
 
 	class HazardPtr
 	{
-		using Base = cmts_hazard_ptr;
+		using Base = cmts_hazard_context;
 		Base impl;
 	public:
 
@@ -496,11 +495,6 @@ namespace CMTS
 		return (Result)cmts_terminate(deallocate);
 	}
 
-	bool RequiresAllocator()
-	{
-		return cmts_requires_allocator();
-	}
-
 	bool IsInitialized()
 	{
 		return cmts_is_initialized();
@@ -645,7 +639,7 @@ namespace CMTS
 
 	void Task::Wake(TaskID task_id)
 	{
-		cmts_task_wake(task_id);
+		cmts_task_resume(task_id);
 	}
 
 	bool Task::IsValid(TaskID task_id)
