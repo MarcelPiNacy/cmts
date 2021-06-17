@@ -92,7 +92,7 @@ namespace CMTS
 
 	enum class DispatchFlags : uint64_t
 	{
-		FORCE = 1
+		Force = 1
 	};
 
 	constexpr DispatchFlags operator ~ (DispatchFlags other) { return (DispatchFlags)~(uint64_t)other; }
@@ -102,10 +102,10 @@ namespace CMTS
 
 	enum class ExtensionType : uint32_t
 	{
-		DEBUGGER,
+		Debugger,
 
-		BEGIN_ENUM = DEBUGGER,
-		END_ENUM = DEBUGGER + 1,
+		BeginEnum = Debugger,
+		EndEnum = Debugger + 1,
 	};
 
 	struct MemoryRequirements
@@ -187,13 +187,14 @@ namespace CMTS
 		Result Reset();
 	};
 
-	class Counter : private cmts_counter
+	class Counter
 	{
 		using Base = cmts_counter;
+		Base impl;
 	public:
 
 		constexpr Counter(uint64_t start_value)
-			: Base(CMTS_COUNTER_INIT(start_value))
+			: impl(CMTS_COUNTER_INIT(start_value))
 		{
 		}
 
@@ -308,6 +309,28 @@ namespace CMTS
 		void Dispatch(TaskID task_id);
 		void Delete(TaskID task_id);
 	}
+
+	class TaskRef
+	{
+		TaskID id;
+	public:
+		static TaskRef New();
+		uint8_t GetPriority() const;
+		void SetPriority(uint8_t new_priority);
+		void* GetParameter() const;
+		void SetParameter(void* new_parameter);
+		TaskFn GetFunction() const;
+		void SetFunction(TaskFn new_function);
+		void AttachSyncObject(Event& event);
+		void AttachSyncObject(Counter& counter);
+		void Sleep();
+		void Wake();
+		bool IsValid() const;
+		bool IsSleeping() const;
+		bool IsRunning() const;
+		void Dispatch();
+		void Delete();
+	};
 
 	namespace RCU
 	{
@@ -665,6 +688,88 @@ namespace CMTS
 	void Task::Delete(TaskID task_id)
 	{
 		cmts_task_deallocate(task_id);
+	}
+
+	TaskRef TaskRef::New()
+	{
+		TaskRef r;
+		r.id = Task::New();
+		return r;
+	}
+
+	uint8_t TaskRef::GetPriority() const
+	{
+		return Task::GetPriority(id);
+	}
+
+	void TaskRef::SetPriority(uint8_t new_priority)
+	{
+		Task::SetPriority(id, new_priority);
+	}
+
+	void* TaskRef::GetParameter() const
+	{
+		return Task::GetParameter(id);
+	}
+
+	void TaskRef::SetParameter(void* new_parameter)
+	{
+		Task::SetParameter(id, new_parameter);
+	}
+
+	TaskFn TaskRef::GetFunction() const
+	{
+		return Task::GetFunction(id);
+	}
+
+	void TaskRef::SetFunction(TaskFn new_function)
+	{
+		Task::SetFunction(id, new_function);
+	}
+
+	void TaskRef::AttachSyncObject(Event& event)
+	{
+		Task::AttachSyncObject(id, event);
+	}
+
+	void TaskRef::AttachSyncObject(Counter& counter)
+	{
+		Task::AttachSyncObject(id, counter);
+	}
+
+	void TaskRef::Sleep()
+	{
+		Task::Sleep(id);
+	}
+
+	void TaskRef::Wake()
+	{
+		Task::Wake(id);
+	}
+
+	bool TaskRef::IsValid() const
+	{
+		return Task::IsValid(id);
+	}
+
+	bool TaskRef::IsSleeping() const
+	{
+		return Task::IsSleeping(id);
+	}
+
+	bool TaskRef::IsRunning() const
+	{
+		return Task::IsRunning(id);
+	}
+
+	void TaskRef::Dispatch()
+	{
+		Task::Dispatch(id);
+	}
+
+	void TaskRef::Delete()
+	{
+		Task::Delete(id);
 	}
 
 	void RCU::ReadBegin()

@@ -26,7 +26,7 @@ int main()
 ```
 ### Implementation Details
 #### Overview
-![image](https://github.com/MarcelPiNacy/cmts/blob/master/docs/images/CMTS.png)  
+![image](https://github.com/MarcelPiNacy/cmts/blob/master/overview.svg)  
 On startup, CMTS will launch the specified number of worker threads and lock them to the corresponding CPU core.
 Each thread keeps up to `CMTS_MAX_PRIORITY` (3 by default) wait-free MPSC task queues.
 On task submission, a worker thread is chosen randomly and the index of the task is pushed to the corresponding queue.

@@ -14,6 +14,10 @@
 	limitations under the License.
 */
 
+/** @file cmts.h
+* Contains the core C api and implementation of CMTS.
+*/
+
 #ifndef CMTS_INCLUDED
 #define CMTS_INCLUDED
 #include <stdint.h>
@@ -27,14 +31,23 @@
 #endif
 
 #ifndef CMTS_CALL
+/**
+* Used to override the calling convention of public CMTS functions.
+*/
 #define CMTS_CALL
 #endif
 
 #ifndef CMTS_ATTR
+/**
+* Used to add extra attributes to public CMTS functions.
+*/
 #define CMTS_ATTR
 #endif
 
 #ifndef CMTS_PTR
+/**
+* Used to override the calling convention of CMTS function pointers.
+*/
 #define CMTS_PTR
 #endif
 
@@ -66,6 +79,9 @@
 #endif
 
 #ifndef CMTS_MAX_PRIORITY
+/**
+* Used to override the number of queues per worker thread.
+*/
 #define CMTS_MAX_PRIORITY 3
 #endif
 
@@ -74,10 +90,16 @@
 #endif
 
 #ifndef CMTS_DEFAULT_TASKS_PER_THREAD
+/**
+* Used to override the number allocated tasks per worker thread (if cmts_init is called with NULL).
+*/
 #define CMTS_DEFAULT_TASKS_PER_THREAD 256
 #endif
 
 #ifndef CMTS_SPIN_THRESHOLD
+/**
+* Used to override the maximum number of retries of a spin loop before switching to a long-term waiting strategy.
+*/
 #define CMTS_SPIN_THRESHOLD 8
 #endif
 
@@ -91,26 +113,21 @@
 #endif
 
 #ifndef CMTS_TEXT
-#define CMTS_TEXT(string_literal) string_literal
-#endif
-
-#ifndef CMTS_EXTERN_C_BEGIN
-#define CMTS_EXTERN_C_BEGIN extern "C" {
-#endif
-
-#ifndef CMTS_EXTERN_C_END
-#define CMTS_EXTERN_C_END }
+#define CMTS_TEXT(TEXT) TEXT
 #endif
 
 #define CMTS_FALSE ((cmts_bool)0)
 #define CMTS_TRUE ((cmts_bool)1)
 
-CMTS_EXTERN_C_BEGIN
+extern "C"
+{
+
 #ifdef __cplusplus
 typedef bool cmts_bool;
 #else
 typedef _Bool cmts_bool;
 #endif
+
 typedef uint64_t cmts_task_id;
 typedef void(CMTS_PTR* cmts_fn_task)(void* parameter);
 typedef void* (CMTS_PTR* cmts_fn_allocate)(size_t size);
@@ -177,17 +194,25 @@ typedef enum cmts_ext_type
 
 typedef uint32_t cmts_fence;
 typedef uint64_t cmts_event;
-#if defined(__clang__) || defined(__GNUC__)
-typedef __uint128_t cmts_counter;
-#else
-typedef struct cmts_counter { uint64_t x, y; } cmts_counter;
-#endif
+typedef struct cmts_counter { uint64_t low, high; } cmts_counter;
 typedef uint32_t cmts_mutex;
 typedef size_t cmts_hazard_context;
 
+/** Macro alternative to cmts_fence_init.
+* Mainly useful for compile-time initialization.
+*/
 #define CMTS_FENCE_INIT UINT32_MAX
+/** Macro alternative to cmts_event_init.
+* Mainly useful for compile-time initialization.
+*/
 #define CMTS_EVENT_INIT UINT64_MAX
+/** Macro alternative to cmts_counter_init.
+* Mainly useful for compile-time initialization.
+*/
 #define CMTS_COUNTER_INIT(VALUE) { UINT64_MAX, (VALUE) }
+/** Macro alternative to cmts_mutex_init.
+* Mainly useful for compile-time initialization.
+*/
 #define CMTS_MUTEX_INIT UINT32_MAX
 
 typedef struct cmts_task_allocator
@@ -282,7 +307,7 @@ typedef struct cmts_ext_debug_init_options
 	cmts_fn_debugger_message message_callback;
 } cmts_ext_debug_init_options;
 
-/** Initialize the CMTS scheduler.
+/** @brief Initializes the CMTS scheduler.
 * @param options An optional pointer to a @ref cmts_init_options record.
 * @return CMTS_OK on success. Possible error codes include: 
 * @li CMTS_ALREADY_INITIALIZED
@@ -345,7 +370,7 @@ CMTS_ATTR cmts_bool CMTS_CALL cmts_is_worker_thread();
 * @return If the current thread belongs to CMTS, the index of the worker thread. Otherwise returns the number of worker threads.
 */
 CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_index();
-/*
+/**
 * @return The number of worker threads.
 */
 CMTS_ATTR uint32_t CMTS_CALL cmts_worker_thread_count();
@@ -384,52 +409,53 @@ CMTS_ATTR uint8_t CMTS_CALL cmts_task_get_priority(cmts_task_id task_id);
 /** Sets the priority of a task.
 * @param task_id The ID of the task.
 * @param new_priority The desired priority of the task.
-* @note This function is not thread-safe.
+* @note WARNING: Reading or writing task attributes is not thread-safe and if the task has been submitted it is UB.
 */
 CMTS_ATTR void CMTS_CALL cmts_task_set_priority(cmts_task_id task_id, uint8_t new_priority);
 /** Retrieves the parameter of a task.
 * @param task_id The ID of the task.
 * @return The parameters of the task.
-* @note This function is not thread-safe.
+* @note WARNING: Reading or writing task attributes is not thread-safe and if the task has been submitted it is UB.
 */
 CMTS_ATTR void* CMTS_CALL cmts_task_get_parameter(cmts_task_id task_id);
 /** Sets the parameter of a task.
 * @param task_id The ID of the task.
 * @param new_parameter The desired parameter of the task.
-* @note This function is not thread-safe.
+* @note WARNING: Reading or writing task attributes is not thread-safe and if the task has been submitted it is UB.
 */
 CMTS_ATTR void CMTS_CALL cmts_task_set_parameter(cmts_task_id task_id, void* new_parameter);
 /** Retrieves the entry point of a task.
 * @param task_id The ID of the task.
 * @return The entry point of the task.
-* @note This function is not thread-safe.
+* @note WARNING: Reading or writing task attributes is not thread-safe and if the task has been submitted it is UB.
 */
 CMTS_ATTR cmts_fn_task CMTS_CALL cmts_task_get_function(cmts_task_id task_id);
 /** Sets the entry point of a task.
 * @param task_id The ID of the task.
 * @param new_function The desired entry point of the task.
-* @note This function is not thread-safe.
+* @note WARNING: Reading or writing task attributes is not thread-safe and if the task has been submitted it is UB.
 */
 CMTS_ATTR void CMTS_CALL cmts_task_set_function(cmts_task_id task_id, cmts_fn_task new_function);
 /** Attaches a cmts_event to a task.
 * @param task_id The ID of the task.
 * @param event A pointer to the event to attach.
-* @note This function is not thread-safe.
+* @note WARNING: Reading or writing task attributes is not thread-safe and if the task has been submitted it is UB.
 */
 CMTS_ATTR void CMTS_CALL cmts_task_attach_event(cmts_task_id task_id, cmts_event* event);
 /** Attaches a cmts_counter to a task.
 * @param task_id The ID of the task.
 * @param counter A pointer to the counter to attach.
-* @note This function is not thread-safe.
+* @note WARNING: Reading or writing task attributes is not thread-safe and if the task has been submitted it is UB.
 */
 CMTS_ATTR void CMTS_CALL cmts_task_attach_counter(cmts_task_id task_id, cmts_counter* counter);
 /** Pauses the execution of a task.
 * @param task_id The ID of the task.
-* @note This function is not thread-safe.
+* @note WARNING: Reading or writing task attributes is not thread-safe and if the task has been submitted it is UB.
 */
 CMTS_ATTR void CMTS_CALL cmts_task_sleep(cmts_task_id task_id);
 /** Resumes execution of a task.
 * @param task_id The ID of the task.
+* @note WARNING: Calling this function while the specified task is not currently sleeping is UB.
 */
 CMTS_ATTR void CMTS_CALL cmts_task_resume(cmts_task_id task_id);
 /** Checks whether a task ID is valid.
@@ -453,16 +479,17 @@ CMTS_ATTR cmts_bool CMTS_CALL cmts_task_is_running(cmts_task_id task_id);
 CMTS_ATTR void CMTS_CALL cmts_task_dispatch(cmts_task_id task_id);
 /** Returns the specified task to the global pool.
 * @param task_id The ID of the task.
+* @note WARNING: Reading or writing task attributes is not thread-safe and if the task has been submitted it is UB.
 */
 CMTS_ATTR void CMTS_CALL cmts_task_deallocate(cmts_task_id task_id);
 
 /** Initializes a fence.
 * @param fence A valid pointer to a cmts_fence object.
+* @note This function is not thread-safe.
 */
 CMTS_ATTR void CMTS_CALL cmts_fence_init(cmts_fence* fence);
 /** Busy waits until a task is waiting on the fence, then resumes it.
 * @param fence A valid pointer to a cmts_fence object.
-* @note This function is not thread-safe.
 */
 CMTS_ATTR void CMTS_CALL cmts_fence_signal(cmts_fence* fence);
 /** Attempts to suspend execution of the current task until the fence is signaled.
@@ -494,7 +521,7 @@ CMTS_ATTR cmts_result CMTS_CALL cmts_event_state(const cmts_event* event);
 * @return CMTS_OK if the operation succeeded, CMTS_SYNC_OBJECT_EXPIRED if the event has already been signaled.
 */
 CMTS_ATTR cmts_result CMTS_CALL cmts_event_signal(cmts_event* event);
-/** Attempts to wait for the event to become signaled, putting the current task to sleep.
+/** Waits for the event to become signaled, putting the current task to sleep.
 * @param event A valid pointer to a cmts_event object.
 * @return CMTS_OK if the operation succeeded, CMTS_SYNC_OBJECT_EXPIRED if the event had already been signaled.
 */
@@ -527,7 +554,7 @@ CMTS_ATTR cmts_result CMTS_CALL cmts_counter_state(const cmts_counter* counter);
 /** Atomically increments the value of the counter.
 * @param counter A valid pointer to a cmts_counter object.
 * @return CMTS_OK if the operation succeeded, CMTS_SYNC_OBJECT_EXPIRED if the counter has already reached zero.
-* @note WARNING: Incrementing a counter after it reached zero might (will) lead to UB.
+* @note WARNING: Incrementing a counter after it reached zero leads to UB.
 */
 CMTS_ATTR cmts_result CMTS_CALL cmts_counter_increment(cmts_counter* counter);
 /** Atomically decrements the value of the counter. If it reaches zero all waiting tasks are resumed.
@@ -669,7 +696,7 @@ CMTS_ATTR cmts_bool CMTS_CALL cmts_ext_debug_enabled();
 */
 CMTS_ATTR void CMTS_CALL cmts_ext_debug_write(const cmts_ext_debug_message* message);
 
-CMTS_EXTERN_C_END
+}
 #endif
 
 #ifdef CMTS_IMPLEMENTATION
@@ -1772,7 +1799,8 @@ static cmts_result cmts_common_cleanup(cmts_fn_deallocate deallocate)
 	return CMTS_OK;
 }
 
-CMTS_EXTERN_C_BEGIN
+extern "C"
+{
 CMTS_ATTR cmts_result CMTS_CALL cmts_init(const cmts_init_options* options)
 {
 	cmts_result r;
@@ -2568,5 +2596,5 @@ CMTS_ATTR void CMTS_CALL cmts_ext_debug_write(const cmts_ext_debug_message* mess
 		debugger_callback(debugger_context, message);
 #endif
 }
-CMTS_EXTERN_C_END
+}
 #endif
