@@ -50,8 +50,8 @@ CMTS implements the following synchronization primitives:
 
 #### More implementation notes:
 - Currently, worker threads use Daniel Bittman's excellent MPSC wait-free queue: https://github.com/dbittman/waitfree-mpsc-queue
-- When pushing a task, the PRNG used to select a target worker thread is RomuDuoJr (Reseeded every 2^32 ns with the CSPRNG of the target OS).
-- The maximum size of the task pool is 2^32 - 1 to avoid the cost of 16-byte atomic operations.
+- When pushing a task, the PRNG used to select a target worker thread is RomuDuoJr (Reseeded every 2<sup>32</sup> ns with the CSPRNG of the target OS).
+- The maximum size of the task pool is 2<sup>32</sup> - 1 to avoid the cost of 16-byte atomic operations.
 ### C++17 Example
 ```cpp
 #include <cstdio>
