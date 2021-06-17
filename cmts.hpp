@@ -392,6 +392,7 @@ namespace CMTS
 #endif
 	}
 }
+#endif // CMTS_CPP_INCLUDED
 
 
 
@@ -892,4 +893,3 @@ namespace CMTS
 #endif
 }
 #endif // CMTS_CPP_IMPLEMENTATION
-#endif // CMTS_CPP_INCLUDED

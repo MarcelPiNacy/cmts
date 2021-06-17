@@ -699,6 +699,8 @@ CMTS_ATTR void CMTS_CALL cmts_ext_debug_write(const cmts_ext_debug_message* mess
 }
 #endif
 
+
+
 #ifdef CMTS_IMPLEMENTATION
 #define CMTS_ROUND_CACHE_LINE_SIZE(VALUE) ((VALUE) + (CMTS_CACHE_LINE_SIZE - 1)) & (~(CMTS_CACHE_LINE_SIZE - 1))
 #define CMTS_MAKE_HANDLE(INDEX, GENERATION) ((uint64_t)(INDEX) | ((uint64_t)(GENERATION) << 32))
