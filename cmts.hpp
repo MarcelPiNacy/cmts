@@ -279,7 +279,7 @@ namespace CMTS
 		for (; context.iterator != end; ++context.iterator)
 		{
 			context.fence.Reset();
-			Dispatch([](void* ptr)
+			Dispatch([&](void* ptr)
 			{
 				LoopContext& ctx = *(LoopContext*)ptr;
 				I it = ctx.iterator;
