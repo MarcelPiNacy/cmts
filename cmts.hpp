@@ -33,7 +33,7 @@ namespace CMTS
 	using DeallocateFn = cmts_fn_deallocate;
 	using StringRef = std::basic_string_view<CMTS_CHAR>;
 
-	enum class Result : uint32_t
+	enum class Result : int32_t
 	{
 		OK = 0,
 		SYNC_OBJECT_EXPIRED = 1,
