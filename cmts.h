@@ -183,7 +183,6 @@ typedef __uint128_t cmts_counter;
 typedef struct cmts_counter { uint64_t x, y; } cmts_counter;
 #endif
 typedef uint32_t cmts_mutex;
-typedef size_t cmts_mutex_hybrid;
 typedef size_t cmts_hazard_context;
 
 #define CMTS_FENCE_INIT UINT32_MAX
@@ -569,12 +568,6 @@ CMTS_ATTR void CMTS_CALL cmts_mutex_lock(cmts_mutex* mutex);
 * @param mutex A valid pointer to a cmts_mutex object.
 */
 CMTS_ATTR void CMTS_CALL cmts_mutex_unlock(cmts_mutex* mutex);
-
-CMTS_ATTR void CMTS_CALL cmts_mutex_hybrid_init(cmts_mutex_hybrid* mutex);
-CMTS_ATTR cmts_bool CMTS_CALL cmts_mutex_hybrid_is_locked(const cmts_mutex_hybrid* mutex);
-CMTS_ATTR cmts_bool CMTS_CALL cmts_mutex_hybrid_try_lock(cmts_mutex_hybrid* mutex);
-CMTS_ATTR void CMTS_CALL cmts_mutex_hybrid_lock(cmts_mutex_hybrid* mutex);
-CMTS_ATTR void CMTS_CALL cmts_mutex_hybrid_unlock(cmts_mutex_hybrid* mutex);
 
 /** Begins a CMTS RCU reader critical section.
 * Until cmts_rcu_read_end is invoked, suspending execution of the current task is forbidden.
@@ -2260,7 +2253,7 @@ CMTS_ATTR cmts_result CMTS_CALL cmts_counter_reset(cmts_counter* counter, uint64
 
 CMTS_ATTR void CMTS_CALL cmts_mutex_init(cmts_mutex* mutex)
 {
-	(void)memset(mutex, 0, 8);
+	(void)memset(mutex, 0xff, 4);
 }
 
 CMTS_ATTR cmts_bool CMTS_CALL cmts_mutex_is_locked(const cmts_mutex* mutex)
