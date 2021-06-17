@@ -255,6 +255,7 @@ namespace CMTS
 	uint32_t PurgeAll();
 	Result Dispatch(TaskFn entry_point);
 	Result Dispatch(TaskFn entry_point, DispatchOptions& options);
+#undef Yield
 	void Yield();
 	void Exit();
 	TaskID ThisTaskID();
@@ -594,7 +595,6 @@ namespace CMTS
 		return (Result)cmts_dispatch(entry_point, &o);
 	}
 
-#undef Yield
 	void Yield()
 	{
 		cmts_yield();
