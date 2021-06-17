@@ -189,7 +189,7 @@ typedef size_t cmts_hazard_context;
 #define CMTS_FENCE_INIT UINT32_MAX
 #define CMTS_EVENT_INIT UINT64_MAX
 #define CMTS_COUNTER_INIT(VALUE) { UINT64_MAX, (VALUE) }
-#define CMTS_MUTEX_INIT UINT64_MAX
+#define CMTS_MUTEX_INIT UINT32_MAX
 
 typedef struct cmts_task_allocator
 {
