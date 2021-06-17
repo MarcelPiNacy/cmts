@@ -572,6 +572,7 @@ namespace CMTS
 		return (Result)cmts_dispatch(entry_point, &o);
 	}
 
+#undef Yield
 	void Yield()
 	{
 		cmts_yield();
