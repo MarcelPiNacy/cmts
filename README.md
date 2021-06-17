@@ -1,5 +1,5 @@
 # CMTS
-CMTS is a header-only cooperative task scheduling library, based on Christian Gyrling's 2015 GDC talk.
+CMTS is a header-only cooperative task scheduling library, based on Christian Gyrling's 2015 GDC talk.  
 The core library is written in C, with a C++17 API available in a separate file.
 ### Example Code
 ```cpp
