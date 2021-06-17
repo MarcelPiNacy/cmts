@@ -18,7 +18,6 @@
 
 #ifndef CMTS_CPP_INCLUDED
 #define CMTS_CPP_INCLUDED
-#define CMTS_FORMAT_RESULT
 #include "cmts.h"
 #include <cassert>
 #include <iterator>
