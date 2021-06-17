@@ -35,51 +35,51 @@ namespace CMTS
 
 	enum class Result : int32_t
 	{
-		OK = 0,
-		SYNC_OBJECT_EXPIRED = 1,
-		NOT_READY = 2,
-		ALREADY_INITIALIZED = 3,
-		INITIALIZATION_IN_PROGRESS = 4,
+		Ok = 0,
+		SyncObjectExpired = 1,
+		NotReady = 2,
+		AlreadyInitialized = 3,
+		InitializationInProgress = 4,
 
-		ERROR_MEMORY_ALLOCATION = -1,
-		ERROR_MEMORY_DEALLOCATION = -2,
-		ERROR_THREAD_CREATION = -3,
-		ERROR_THREAD_AFFINITY = -4,
-		ERROR_RESUME_THREAD = -5,
-		ERROR_SUSPEND_THREAD = -6,
-		ERROR_THREAD_TERMINATION = -7,
-		ERROR_AWAIT_THREAD = -8,
-		ERROR_TASK_POOL_CAPACITY = -9,
-		ERROR_AFFINITY = -10,
-		ERROR_TASK_ALLOCATION = -11,
-		ERROR_FUTEX = -12,
-		ERROR_LIBRARY_UNINITIALIZED = -13,
-		ERROR_OS_INIT = -14,
-		INVALID_EXTENSION_TYPE = -15,
-		UNSUPPORTED_EXTENSION = -16,
+		ErrorMemoryAllocation = -1,
+		ErrorMemoryDeallocation = -2,
+		ErrorThreadCreation = -3,
+		ErrorThreadAffinity = -4,
+		ErrorResumeThread = -5,
+		ErrorSuspendThread = -6,
+		ErrorThreadTermination = -7,
+		ErrorAwaitThread = -8,
+		ErrorTaskPoolCapacity = -9,
+		ErrorAffinity = -10,
+		ErrorTaskAllocation = -11,
+		ErrorFutex = -12,
+		ErrorLibraryUninitialized = -13,
+		ErrorOsInit = -14,
+		InvalidExtensionType = -15,
+		UnsupportedExtension = -16,
 
-		BEGIN_ENUM = UNSUPPORTED_EXTENSION,
-		END_ENUM = INITIALIZATION_IN_PROGRESS + 1,
+		BeginEnum = UnsupportedExtension,
+		EndEnum = InitializationInProgress + 1,
 	};
 
 	enum class MessageSeverity : uint8_t
 	{
-		INFO,
-		WARNING,
-		ERROR,
+		Info,
+		Warning,
+		Error,
 
-		BEGIN_ENUM = INFO,
-		END_ENUM = ERROR + 1,
+		BeginEnum = Info,
+		EndEnum = Error + 1,
 	};
 
 	enum class SyncObjectType : uint8_t
 	{
-		NONE,
-		EVENT,
-		COUNTER,
+		None,
+		Event,
+		Counter,
 
-		BEGIN_ENUM = NONE,
-		END_ENUM = COUNTER + 1,
+		BeginEnum = None,
+		EndEnum = Counter + 1,
 	};
 
 	enum class InitFlags : uint64_t
@@ -358,7 +358,7 @@ namespace CMTS
 
 		bool IsEnabled();
 		bool EnableYieldTrap(bool enable);
-		void Write(StringRef message, MessageSeverity severity = MessageSeverity::INFO);
+		void Write(StringRef message, MessageSeverity severity = MessageSeverity::Info);
 		void Write(const MessageInfo& message);
 	}
 
