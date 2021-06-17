@@ -462,7 +462,7 @@ namespace CMTS
 
 	Result Init()
 	{
-		cmts_init(nullptr);
+		return (Result)cmts_init(nullptr);
 	}
 
 	Result Init(const InitOptions& options)
@@ -728,7 +728,7 @@ namespace CMTS
 
 	bool HazardPtr::IsUnreachable(void* ptr) const
 	{
-		cmts_hazard_ptr_is_unreachable((Base*)this, ptr);
+		return cmts_hazard_ptr_is_unreachable((Base*)this, ptr);
 	}
 
 	void* HazardPtr::Get()
