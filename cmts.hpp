@@ -231,7 +231,7 @@ namespace CMTS
 		bool IsLocked() const;
 		bool TryLock();
 		void Lock();
-		void UnLock();
+		void Unlock();
 	};
 
 	Result Init();
@@ -479,7 +479,7 @@ namespace CMTS
 		cmts_mutex_lock((Base*)this);
 	}
 
-	void Mutex::UnLock()
+	void Mutex::Unlock()
 	{
 		cmts_mutex_unlock((Base*)this);
 	}
