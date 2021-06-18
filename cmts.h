@@ -1230,8 +1230,9 @@ static CMTS_THREAD_LOCAL(uint64_t) prng_last_seed;
 
 CMTS_INLINE_NEVER static void cmts_finalize_check_noinline()
 {
-	if (cmts_context_is_valid(&task_pool[task_index].ctx))
-		cmts_context_wipe(&task_pool[task_index].ctx);
+	if (cmts_is_task())
+		if (cmts_context_is_valid(&task_pool[task_index].ctx))
+			cmts_context_wipe(&task_pool[task_index].ctx);
 	cmts_os_exit_thread(0);
 }
 
