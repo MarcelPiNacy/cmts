@@ -1569,7 +1569,7 @@ static thread_return_type CMTS_THREAD_CALLING_CONVENTION cmts_thread_entry_point
 #ifdef CMTS_WINDOWS
 	root_task = ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 #endif
-	while (CMTS_ATOMIC_LOAD_ACQ_U8(&should_continue))
+	for (;; cmts_finalize_check())
 	{
 		task_index = cmts_pop_task();
 		task = task_pool + task_index;
@@ -1600,7 +1600,6 @@ static thread_return_type CMTS_THREAD_CALLING_CONVENTION cmts_thread_entry_point
 			(void)callback(sync_object);
 		}
 	}
-	return 0;
 }
 
 static void cmts_task_entry_point(void* ptr)
