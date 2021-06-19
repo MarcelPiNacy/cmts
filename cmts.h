@@ -51,6 +51,14 @@
 #define CMTS_PTR
 #endif
 
+#ifdef __cplusplus
+#define CMTS_EXTERN_C_BEGIN extern "C" {
+#define CMTS_EXTERN_C_END }
+#else
+#define CMTS_EXTERN_C_BEGIN
+#define CMTS_EXTERN_C_END
+#endif
+
 #ifndef CMTS_NODISCARD
 #define CMTS_NODISCARD
 #ifdef __cplusplus
@@ -116,11 +124,10 @@
 #define CMTS_TEXT(TEXT) TEXT
 #endif
 
+CMTS_EXTERN_C_BEGIN
+
 #define CMTS_FALSE ((cmts_bool)0)
 #define CMTS_TRUE ((cmts_bool)1)
-
-extern "C"
-{
 
 #ifdef __cplusplus
 typedef bool cmts_bool;
@@ -695,8 +702,7 @@ CMTS_ATTR cmts_bool CMTS_CALL cmts_ext_debug_enabled();
 * @param message The message information (text, length, severity, etc).
 */
 CMTS_ATTR void CMTS_CALL cmts_ext_debug_write(const cmts_ext_debug_message* message);
-
-}
+CMTS_EXTERN_C_END
 #endif
 
 
@@ -1801,8 +1807,7 @@ static cmts_result cmts_common_cleanup(cmts_fn_deallocate deallocate)
 	return CMTS_OK;
 }
 
-extern "C"
-{
+CMTS_EXTERN_C_BEGIN
 CMTS_ATTR cmts_result CMTS_CALL cmts_init(const cmts_init_options* options)
 {
 	cmts_result r;
@@ -2598,5 +2603,5 @@ CMTS_ATTR void CMTS_CALL cmts_ext_debug_write(const cmts_ext_debug_message* mess
 		debugger_callback(debugger_context, message);
 #endif
 }
-}
+CMTS_EXTERN_C_END
 #endif

@@ -261,7 +261,11 @@ namespace CMTS
 	TaskID ThisTaskID();
 
 	template <typename I, typename F, typename K = ptrdiff_t>
-	void ParallelForEach(I begin, I end, F&& body, uint8_t priority = 0, K step = 0)
+	void ParallelForEach(
+		I begin, I end, F&& body,
+		uint8_t priority = 0,
+		K step = 0,
+		DispatchFlags flags = DispatchFlags::Force)
 	{
 		struct LoopContext
 		{
@@ -273,7 +277,7 @@ namespace CMTS
 		Counter counter = Counter((uint64_t)std::distance(begin, end));
 		LoopContext context = { begin, std::forward<F>(body) };
 		DispatchOptions options = {};
-		options.flags = DispatchFlags::FORCE;
+		options.flags = flags;
 		options.parameter = &context;
 		options.sync_object = &counter;
 		for (; context.iterator != end; ++context.iterator)
