@@ -275,7 +275,7 @@ namespace CMTS
 		};
 
 		Counter counter = Counter((uint64_t)std::distance(begin, end));
-		LoopContext context = { begin, std::forward<F>(body) };
+		LoopContext context = { std::forward<F>(body), begin };
 		DispatchOptions options = {};
 		options.flags = flags;
 		options.parameter = &context;
@@ -283,7 +283,7 @@ namespace CMTS
 		for (; context.iterator != end; ++context.iterator)
 		{
 			context.fence.Reset();
-			Dispatch([&](void* ptr)
+			Dispatch([](void* ptr)
 			{
 				LoopContext& ctx = *(LoopContext*)ptr;
 				I it = ctx.iterator;
