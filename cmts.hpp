@@ -260,6 +260,26 @@ namespace CMTS
 	void Exit();
 	TaskID ThisTaskID();
 
+	template <typename F>
+	void DispatchLambda(F&& function, DispatchOptions options = {})
+	{
+		struct Context
+		{
+			F fn;
+			Fence fence;
+		};
+		Context c = { std::forward<F>(function), Fence() };
+		options.parameter = &c;
+		Dispatch([](void* ptr)
+		{
+			Context& c = *(Context*)ptr;
+			F fn = std::forward<F>(c.fn);
+			c.fence.Signal();
+			fn();
+		}, options);
+		c.fence.Await();
+	}
+
 	template <typename I, typename F, typename K = ptrdiff_t>
 	void ParallelForEach(
 		I begin, I end, F&& body,
@@ -275,7 +295,7 @@ namespace CMTS
 		};
 
 		Counter counter = Counter((uint64_t)std::distance(begin, end));
-		LoopContext context = { std::forward<F>(body), begin };
+		LoopContext context = { std::forward<F>(body), begin, Fence() };
 		DispatchOptions options = {};
 		options.flags = flags;
 		options.parameter = &context;
