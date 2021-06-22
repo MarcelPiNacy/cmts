@@ -1613,13 +1613,12 @@ static void cmts_task_entry_point(void* ptr)
 {
 	cmts_task_state* task;
 	task = (cmts_task_state*)ptr;
-	while (CMTS_ATOMIC_LOAD_ACQ_U8(&should_continue))
+	for (;; cmts_finalize_check())
 	{
 		task->fn(task->param);
 		task->fn = NULL;
 		cmts_yield();
 	}
-	cmts_os_exit_thread(0);
 }
 
 CMTS_INLINE_ALWAYS static size_t cmts_round_pow2(size_t value)
@@ -1858,14 +1857,18 @@ CMTS_ATTR cmts_result CMTS_CALL cmts_resume()
 
 CMTS_ATTR void CMTS_CALL cmts_finalize_signal()
 {
+#ifdef CMTS_NO_BUSY_WAIT
 	size_t i;
+#endif
 	CMTS_ATOMIC_STORE_REL_U8(&should_continue, 0);
 #ifdef CMTS_NO_BUSY_WAIT
 	for (i = 0; i != thread_count; ++i)
 		cmts_os_futex_signal(&thread_generation_counters[i].value);
 #endif
-	CMTS_LIKELY_IF(cmts_is_task())
-		cmts_os_exit_thread(0);
+	if (cmts_is_task())
+		if (cmts_context_is_valid(&task_pool[task_index].ctx))
+			cmts_context_wipe(&task_pool[task_index].ctx);
+	cmts_os_exit_thread(0);
 }
 
 CMTS_ATTR cmts_result CMTS_CALL cmts_finalize_await(cmts_fn_deallocate deallocate)
