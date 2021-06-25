@@ -1159,8 +1159,6 @@ CMTS_INLINE_ALWAYS static cmts_bool cmts_context_is_valid(cmts_context* ctx)
 
 CMTS_INLINE_ALWAYS static void cmts_context_switch(cmts_context* from, cmts_context* to)
 {
-	CMTS_INVARIANT(*from != NULL);
-	CMTS_INVARIANT(*to != NULL);
 	SwitchToFiber(*to);
 }
 
@@ -2052,6 +2050,7 @@ CMTS_ATTR cmts_result CMTS_CALL cmts_dispatch(cmts_fn_task entry_point, cmts_dis
 
 CMTS_ATTR void CMTS_CALL cmts_yield()
 {
+	CMTS_ASSERT(cmts_is_task());
 	CMTS_ATOMIC_STORE_REL_U8(&task_pool[task_index].state, CMTS_TASK_STATE_INACTIVE);
 	CMTS_YIELD_IMPL;
 }
