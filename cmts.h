@@ -741,7 +741,7 @@ CMTS_EXTERN_C_END
 #define CMTS_ASSUME(CONDITION) __builtin_assume((CONDITION))
 #ifdef CMTS_ARCH_ARM
 #define CMTS_SPIN_WAIT __yield()
-#elif defined(CMTS_ARCH_X64)
+#elif defined(CMTS_ARCH_X86) || defined(CMTS_ARCH_X64)
 #define CMTS_SPIN_WAIT __builtin_ia32_pause()
 #else
 #define CMTS_SPIN_WAIT
@@ -755,6 +755,11 @@ CMTS_EXTERN_C_END
 #define CMTS_ROR32(MASK, COUNT) (((MASK) << (COUNT)) | ((MASK) >> (64 - (COUNT))))
 #define CMTS_ROR64(MASK, COUNT) (((MASK) >> (COUNT)) | ((MASK) << (32 - (COUNT))))
 #define CMTS_ATOMIC(TYPE) TYPE
+#define CMTS_ACQUIRE_FENCE __atomic_thread_fence(__ATOMIC_ACQUIRE)
+#define CMTS_RELEASE_FENCE __atomic_thread_fence(__ATOMIC_RELEASE)
+#define CMTS_ATOMIC_LOAD_RLX_U8(TARGET) (uint8_t)__atomic_load_n(((CMTS_ATOMIC(uint8_t)*)(TARGET)), __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_LOAD_RLX_U32(TARGET) (uint32_t)__atomic_load_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), __ATOMIC_RELAXED)
+#define CMTS_ATOMIC_LOAD_RLX_U64(TARGET) (uint64_t)__atomic_load_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), __ATOMIC_RELAXED)
 #define CMTS_ATOMIC_LOAD_ACQ_U8(TARGET) (uint8_t)__atomic_load_n(((CMTS_ATOMIC(uint8_t)*)(TARGET)), __ATOMIC_ACQUIRE)
 #define CMTS_ATOMIC_LOAD_ACQ_U32(TARGET) (uint32_t)__atomic_load_n(((CMTS_ATOMIC(uint32_t)*)(TARGET)), __ATOMIC_ACQUIRE)
 #define CMTS_ATOMIC_LOAD_ACQ_U64(TARGET) (uint64_t)__atomic_load_n(((CMTS_ATOMIC(uint64_t)*)(TARGET)), __ATOMIC_ACQUIRE)
@@ -786,14 +791,16 @@ CMTS_EXTERN_C_END
 #define CMTS_ATOMIC_DECREMENT_REL_U32(TARGET) __atomic_fetch_sub(((CMTS_ATOMIC(uint32_t)*)(TARGET)), UINT32_C(1), __ATOMIC_RELEASE)
 #define CMTS_ATOMIC_DECREMENT_REL_U64(TARGET) __atomic_fetch_sub(((CMTS_ATOMIC(uint64_t)*)(TARGET)), UINT64_C(1), __ATOMIC_RELEASE)
 #elif defined(_MSC_VER) || defined(_MSVC_LANG)
-#include <intrin.h>
 #define CMTS_MSVC
 #ifdef _M_ALPHA
 #define CMTS_ARCH_ALPHA
 #elif defined(_M_AMD64)
 #define CMTS_ARCH_X64
-#elif defined(_M_ARM)
+#elif defined(_M_ARM) || defined(_M_ARM64)
 #define CMTS_ARCH_ARM
+#ifdef _M_ARM64
+#define CMTS_ARCH_ARM64
+#endif
 #ifdef _M_ARMT
 #define CMTS_ARCH_ARM_THUMB
 #endif
@@ -804,6 +811,7 @@ CMTS_EXTERN_C_END
 #elif defined(_M_PPC)
 #define CMTS_ARCH_POWERPC
 #endif
+#include <intrin.h>
 #define CMTS_THREAD_LOCAL(TYPE) __declspec(thread) TYPE
 #define CMTS_ALIGNAS(K) __declspec(align(K))
 #define CMTS_INLINE_ALWAYS __forceinline
@@ -811,14 +819,31 @@ CMTS_EXTERN_C_END
 #define CMTS_LIKELY_IF(CONDITION) if ((CONDITION))
 #define CMTS_UNLIKELY_IF(CONDITION) if ((CONDITION))
 #define CMTS_ASSUME(CONDITION) __assume((CONDITION))
-#define CMTS_POPCNT32(MASK) ((uint8_t)__popcnt((MASK)))
-#define CMTS_POPCNT64(MASK) ((uint8_t)__popcnt64((MASK)))
+#ifdef CMTS_ARCH_ARM
+#define CMTS_CLZ32(MASK) ((uint8_t)_CountLeadingZeros((MASK)))
+#define CMTS_CLZ64(MASK) ((uint8_t)_CountLeadingZeros64((MASK)))
+#ifndef CMTS_ARCH_ARM64
+#define CMTS_POPCNT32(MASK) ((uint8_t)_CountOneBits((MASK)))
+#define CMTS_POPCNT64(MASK) ((uint8_t)_CountOneBits64((MASK)))
+#else
+#define CMTS_POPCNT32(MASK) ((uint8_t)(neon_cnt(__n64{(MASK)}).n64_u64[0]))
+#define CMTS_POPCNT64(MASK) ((uint8_t)(neon_cnt(__n64{(MASK)}).n64_u64[0]))
+#endif
+#else
 #define CMTS_CLZ32(MASK) ((uint8_t)__lzcnt((MASK)))
 #define CMTS_CLZ64(MASK) ((uint8_t)__lzcnt64((MASK)))
-#define CMTS_ROL32(MASK, COUNT) _rotl((MASK), (COUNT))
-#define CMTS_ROL64(MASK, COUNT) _rotl64((MASK), (COUNT))
-#define CMTS_ROR32(MASK, COUNT) _rotr((MASK), (COUNT))
-#define CMTS_ROR64(MASK, COUNT) _rotr64((MASK), (COUNT))
+#define CMTS_POPCNT32(MASK) ((uint8_t)__popcnt((MASK)))
+#define CMTS_POPCNT64(MASK) ((uint8_t)__popcnt64((MASK)))
+#endif
+#define CMTS_ROL32(MASK, COUNT) (uint32_t)_rotl((MASK), (COUNT))
+#define CMTS_ROL64(MASK, COUNT) (uint64_t)_rotl64((MASK), (COUNT))
+#define CMTS_ROR32(MASK, COUNT) (uint32_t)_rotr((MASK), (COUNT))
+#define CMTS_ROR64(MASK, COUNT) (uint64_t)_rotr64((MASK), (COUNT))
+#ifdef CMTS_ARCH_ARM
+#define CTMS_MEMORY_BARRIER __dmb(0xb)
+#else
+#define CTMS_MEMORY_BARRIER
+#endif
 #ifdef CMTS_ARCH_ARM
 #define CMTS_SPIN_WAIT __yield()
 #define CMTS_MSVC_ATOMIC_ACQ_SUFFIX(NAME) NAME##_acq
@@ -833,12 +858,38 @@ CMTS_EXTERN_C_END
 #define CMTS_MSVC_ATOMIC_REL_SUFFIX(NAME) NAME
 #endif
 #define CMTS_ATOMIC(TYPE) volatile TYPE
-#define CMTS_ATOMIC_LOAD_ACQ_U8(TARGET) (uint8_t)CMTS_MSVC_ATOMIC_ACQ_SUFFIX(_InterlockedOr8)((volatile char*)(TARGET), '\0')
-#define CMTS_ATOMIC_LOAD_ACQ_U32(TARGET) (uint32_t)CMTS_MSVC_ATOMIC_ACQ_SUFFIX(_InterlockedOr)((volatile long*)(TARGET), (long)0)
-#define CMTS_ATOMIC_LOAD_ACQ_U64(TARGET) (uint64_t)CMTS_MSVC_ATOMIC_ACQ_SUFFIX(_InterlockedOr64)((volatile long long*)(TARGET), (long long)0)
-#define CMTS_ATOMIC_STORE_REL_U8(TARGET, VALUE) (void)CMTS_MSVC_ATOMIC_REL_SUFFIX(_InterlockedExchange8)((volatile char*)(TARGET), (char)(VALUE))
-#define CMTS_ATOMIC_STORE_REL_U32(TARGET, VALUE) (void)CMTS_MSVC_ATOMIC_REL_SUFFIX(_InterlockedExchange)((volatile long*)(TARGET), (long)(VALUE))
-#define CMTS_ATOMIC_STORE_REL_U64(TARGET, VALUE) (void)CMTS_MSVC_ATOMIC_REL_SUFFIX(_InterlockedExchange64)((volatile long long*)(TARGET), (long long)(VALUE))
+CMTS_INLINE_ALWAYS static uint8_t cmts_msvc_atomic_load_u8(CMTS_ATOMIC(void)* source)
+{
+	uint8_t r = (uint8_t)__iso_volatile_load8((const volatile char*)source);
+	_ReadWriteBarrier();
+	return r;
+}
+
+CMTS_INLINE_ALWAYS static uint32_t cmts_msvc_atomic_load_u32(CMTS_ATOMIC(void)* source)
+{
+	uint32_t r = (uint32_t)__iso_volatile_load32((const volatile int*)source);
+	_ReadWriteBarrier();
+	return r;
+}
+
+CMTS_INLINE_ALWAYS static uint64_t cmts_msvc_atomic_load_u64(CMTS_ATOMIC(void)* source)
+{
+	uint64_t r = (uint64_t)__iso_volatile_load64((const volatile long long*)source);
+	_ReadWriteBarrier();
+	return r;
+}
+
+#define CMTS_ACQUIRE_FENCE CTMS_MEMORY_BARRIER; _ReadWriteBarrier()
+#define CMTS_RELEASE_FENCE CMTS_ACQUIRE_FENCE
+#define CMTS_ATOMIC_LOAD_RLX_U8(TARGET) (uint8_t)__iso_volatile_load8((const volatile char*)(TARGET))
+#define CMTS_ATOMIC_LOAD_RLX_U32(TARGET) (uint32_t)__iso_volatile_load32((const volatile int*)(TARGET))
+#define CMTS_ATOMIC_LOAD_RLX_U64(TARGET) (uint64_t)__iso_volatile_load64((const volatile long long*)(TARGET))
+#define CMTS_ATOMIC_LOAD_ACQ_U8(TARGET) cmts_msvc_atomic_load_u8((TARGET))
+#define CMTS_ATOMIC_LOAD_ACQ_U32(TARGET) cmts_msvc_atomic_load_u32((TARGET))
+#define CMTS_ATOMIC_LOAD_ACQ_U64(TARGET) cmts_msvc_atomic_load_u64((TARGET))
+#define CMTS_ATOMIC_STORE_REL_U8(TARGET, VALUE) CMTS_RELEASE_FENCE; __iso_volatile_store8((volatile char*)(TARGET), (char)(VALUE))
+#define CMTS_ATOMIC_STORE_REL_U32(TARGET, VALUE) CMTS_RELEASE_FENCE; __iso_volatile_store32((volatile int*)(TARGET), (int)(VALUE))
+#define CMTS_ATOMIC_STORE_REL_U64(TARGET, VALUE) CMTS_RELEASE_FENCE; __iso_volatile_store64((volatile long long*)(TARGET), (long long)(VALUE))
 #define CMTS_ATOMIC_XCHG_ACQ_U32(TARGET, VALUE) (uint32_t)CMTS_MSVC_ATOMIC_ACQ_SUFFIX(_InterlockedExchange)((volatile long*)(TARGET), (long)(VALUE))
 #define CMTS_ATOMIC_XCHG_ACQ_U64(TARGET, VALUE) (uint64_t)CMTS_MSVC_ATOMIC_ACQ_SUFFIX(_InterlockedExchange64)((volatile long long*)(TARGET), (long long)(VALUE))
 #define CMTS_ATOMIC_XCHG_REL_U32(TARGET, VALUE) (uint32_t)CMTS_MSVC_ATOMIC_REL_SUFFIX(_InterlockedExchange)((volatile long*)(TARGET), (long)(VALUE))
@@ -864,6 +915,13 @@ CMTS_EXTERN_C_END
 #define CMTS_ATOMIC_DECREMENT_REL_U32(TARGET) ((uint32_t)(CMTS_MSVC_ATOMIC_REL_SUFFIX(_InterlockedDecrement)((volatile long*)(TARGET))) + 1)
 #define CMTS_ATOMIC_DECREMENT_REL_U64(TARGET) ((uint64_t)(CMTS_MSVC_ATOMIC_REL_SUFFIX(_InterlockedDecrement64)((volatile long long*)(TARGET))) + 1)
 #endif
+
+#define CMTS_NON_ATOMIC_LOAD_U8(TARGET) *(const uint8_t*)(TARGET)
+#define CMTS_NON_ATOMIC_LOAD_U32(TARGET) *(const uint32_t*)(TARGET)
+#define CMTS_NON_ATOMIC_LOAD_U64(TARGET) *(const uint64_t*)(TARGET)
+#define CMTS_NON_ATOMIC_STORE_U8(TARGET, VALUE) (void)(*(uint8_t*)(TARGET) = (VALUE))
+#define CMTS_NON_ATOMIC_STORE_U32(TARGET, VALUE) (void)(*(uint32_t*)(TARGET) = (VALUE))
+#define CMTS_NON_ATOMIC_STORE_U64(TARGET, VALUE) (void)(*(uint64_t*)(TARGET) = (VALUE))
 
 #if UINTPTR_MAX == UINT32_MAX
 #define CMTS_ATOMIC_LOAD_ACQ_UPTR			CMTS_ATOMIC_LOAD_ACQ_U32
@@ -1090,7 +1148,7 @@ CMTS_INLINE_ALWAYS static cmts_bool cmts_context_init(cmts_context* ctx, cmts_fn
 {
 	CMTS_INVARIANT(function != NULL);
 	CMTS_INVARIANT(param != NULL);
-	*ctx = CreateFiberEx(stack_size, stack_size, FIBER_FLAG_FLOAT_SWITCH, function, param); return *ctx != NULL;
+	*ctx = CreateFiberEx(stack_size, stack_size, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)function, param); return *ctx != NULL;
 	return *ctx != NULL;
 }
 
@@ -1364,7 +1422,7 @@ CMTS_INLINE_ALWAYS static cmts_bool cmts_try_push_task_to(uint_fast32_t index, u
 	}
 	prior = CMTS_ATOMIC_INCREMENT_ACQ_U32(&queue->head);
 	prior &= queue_capacity_mask;
-	(void)CMTS_ATOMIC_STORE_REL_U32(&queue->values[prior], index);
+	CMTS_ATOMIC_STORE_REL_U32(&queue->values[prior], index);
 	(void)CMTS_ATOMIC_INCREMENT_REL_U32(&thread_generation_counters[thread_index].value);
 	cmts_os_futex_signal(&thread_generation_counters[thread_index].value);
 	return CMTS_TRUE;
@@ -1464,8 +1522,9 @@ static void cmts_impl_wake_task(uint_fast32_t index)
 {
 	cmts_task_state* task;
 	task = task_pool + index;
-	while (CMTS_ATOMIC_LOAD_ACQ_U8(&task->state) != CMTS_TASK_STATE_SLEEPING)
+	while (CMTS_ATOMIC_LOAD_RLX_U8(&task->state) != CMTS_TASK_STATE_SLEEPING)
 		CMTS_SPIN_WAIT;
+	CMTS_ACQUIRE_FENCE;
 	CMTS_ATOMIC_STORE_REL_U8(&task->state, CMTS_TASK_STATE_INACTIVE);
 	cmts_push_task(index);
 }
@@ -1543,8 +1602,9 @@ static cmts_result cmts_wait_queue_pop_all(CMTS_ATOMIC(uint64_t)* queue)
 	n = prior.queue.head;
 	for (;; n = next)
 	{
-		while (CMTS_ATOMIC_LOAD_ACQ_U8(&task_pool[n].state) != CMTS_TASK_STATE_SLEEPING)
+		while (CMTS_ATOMIC_LOAD_RLX_U8(&task_pool[n].state) != CMTS_TASK_STATE_SLEEPING)
 			CMTS_SPIN_WAIT;
+		CMTS_ACQUIRE_FENCE;
 		next = task_pool[n].next;
 		task_pool[n].next = UINT32_MAX;
 		CMTS_ATOMIC_STORE_REL_U8(&task_pool[n].state, CMTS_TASK_STATE_INACTIVE);
@@ -1590,7 +1650,9 @@ static thread_return_type CMTS_THREAD_CALLING_CONVENTION cmts_thread_entry_point
 #endif
 		k = CMTS_ATOMIC_LOAD_ACQ_U8(&task->state);
 		CMTS_UNLIKELY_IF(k == CMTS_TASK_STATE_GOING_TO_SLEEP)
+		{
 			CMTS_ATOMIC_STORE_REL_U8(&task->state, CMTS_TASK_STATE_SLEEPING);
+		}
 		if (task->fn != NULL)
 		{
 			CMTS_LIKELY_IF(k != CMTS_TASK_STATE_GOING_TO_SLEEP)
@@ -1639,7 +1701,7 @@ static void cmts_lib_lock()
 	{
 		for (i = 0; i != CMTS_SPIN_THRESHOLD; ++i)
 		{
-			expected = CMTS_ATOMIC_LOAD_ACQ_U32(&lib_lock);
+			expected = CMTS_ATOMIC_LOAD_ACQ_U8(&lib_lock);
 			CMTS_LIKELY_IF(!expected && CMTS_ATOMIC_CMPXCHG_ACQ_U32(&lib_lock, &expected, 1))
 				return;
 		}
@@ -1912,10 +1974,8 @@ CMTS_ATTR uint32_t CMTS_CALL cmts_purge(uint32_t max_purged_tasks)
 		n = task_pool_capacity;
 	k = 0;
 	for (i = 0; i != n && k != max_purged_tasks; ++i)
-	{
 		CMTS_LIKELY_IF(cmts_context_is_valid(&task_pool[i].ctx))
 			cmts_context_delete(&task_pool[i].ctx);
-	}
 	return k;
 }
 
@@ -1927,10 +1987,8 @@ CMTS_ATTR uint32_t CMTS_CALL cmts_purge_all()
 		n = task_pool_capacity;
 	k = 0;
 	for (i = 0; i != n; ++i)
-	{
 		CMTS_LIKELY_IF(cmts_context_is_valid(&task_pool[i].ctx))
 			cmts_context_delete(&task_pool[i].ctx);
-	}
 	return k;
 }
 
@@ -1981,7 +2039,7 @@ CMTS_ATTR cmts_result CMTS_CALL cmts_dispatch(cmts_fn_task entry_point, cmts_dis
 	task->thread_affinity = options->locked_thread != NULL ? *options->locked_thread : thread_count;
 	task->priority = options->priority;
 	task->sync_type = options->sync_type;
-	CMTS_ASSERT(CMTS_ATOMIC_LOAD_ACQ_U8(&task->state) == CMTS_TASK_STATE_INACTIVE);
+	CMTS_ASSERT(CMTS_NON_ATOMIC_LOAD_U8(&task->state) == CMTS_TASK_STATE_INACTIVE);
 	cmts_push_task(index);
 	CMTS_UNLIKELY_IF(options->out_task_id != NULL)
 		*options->out_task_id = CMTS_MAKE_HANDLE(index, generation);
@@ -2384,7 +2442,9 @@ CMTS_ATTR void CMTS_CALL cmts_rcu_sync()
 		CMTS_UNLIKELY_IF(next > thread_count)
 			next = thread_count;
 		for (j = i; j != next; ++j)
+		{
 			group[j - i] = CMTS_ATOMIC_LOAD_ACQ_U32(&thread_generation_counters[j].value);
+		}
 		cmts_yield();
 		for (j = i; j != next; ++j)
 		{
@@ -2411,7 +2471,9 @@ CMTS_ATTR void CMTS_CALL cmts_rcu_snapshot(void* snapshot_buffer)
 	uint32_t* out = (uint32_t*)snapshot_buffer;
 	uint32_t i;
 	for (i = 0; i != thread_count; ++i)
+	{
 		out[i] = CMTS_ATOMIC_LOAD_ACQ_U32(&thread_generation_counters[i].value);
+	}
 }
 
 CMTS_ATTR uint32_t CMTS_CALL cmts_rcu_try_snapshot_sync(const void* snapshot_buffer, uint32_t prior_result)
@@ -2492,10 +2554,8 @@ CMTS_ATTR cmts_bool CMTS_CALL cmts_hazard_ptr_is_unreachable(const cmts_hazard_c
 	uint8_t* end;
 	end = (uint8_t*)hctx + thread_count * sizeof(void*);
 	for (i = (uint8_t*)hctx; i != end; i += sizeof(void*))
-	{
 		CMTS_UNLIKELY_IF((void*)CMTS_ATOMIC_LOAD_ACQ_UPTR((CMTS_ATOMIC(void*)*)i) == ptr)
 			return CMTS_FALSE;
-	}
 	return CMTS_TRUE;
 }
 
