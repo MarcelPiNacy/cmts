@@ -1295,9 +1295,11 @@ static CMTS_THREAD_LOCAL(uint64_t) prng_last_seed;
 CMTS_INLINE_NEVER static void cmts_finalize_check_noinline()
 {
 	if (cmts_is_task())
+	{
 		if (cmts_context_is_valid(&task_pool[task_index].ctx))
 			cmts_context_wipe(&task_pool[task_index].ctx);
-	cmts_os_exit_thread(0);
+		cmts_os_exit_thread(0);
+	}
 }
 
 CMTS_INLINE_ALWAYS static void cmts_finalize_check()
@@ -1928,9 +1930,11 @@ CMTS_ATTR void CMTS_CALL cmts_finalize_signal()
 		cmts_os_futex_signal(&thread_generation_counters[i].value);
 #endif
 	if (cmts_is_task())
+	{
 		if (cmts_context_is_valid(&task_pool[task_index].ctx))
 			cmts_context_wipe(&task_pool[task_index].ctx);
-	cmts_os_exit_thread(0);
+		cmts_os_exit_thread(0);
+	}
 }
 
 CMTS_ATTR cmts_result CMTS_CALL cmts_finalize_await(cmts_fn_deallocate deallocate)
