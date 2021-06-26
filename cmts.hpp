@@ -124,11 +124,12 @@ namespace CMTS
 
 	struct InitOptions
 	{
+		InitFlags flags;
 		AllocateFn allocate_function;
+		const uint32_t* thread_affinities;
+		AllocateFn task_allocator;
 		uint32_t task_stack_size;
 		uint32_t thread_count;
-		const uint32_t* thread_affinities;
-		InitFlags flags;
 		uint32_t max_tasks;
 		const void* next_ext;
 	};
@@ -610,11 +611,13 @@ namespace CMTS
 
 	Result Dispatch(TaskFn entry_point, DispatchOptions& options)
 	{
-		constexpr size_t offset = offsetof(DispatchOptions, sync_object);
 		cmts_dispatch_options o;
-		(void)memcpy(&o, &options, offset);
-		o.sync_type = (cmts_sync_type)options.sync_object.index();
+		o.flags = (cmts_dispatch_flags)options.flags;
+		o.out_task_id = (cmts_task_id*)options.out_task_id;
+		o.locked_thread = options.locked_thread;
+		o.parameter = options.parameter;
 		std::visit([&](auto e) { o.sync_object = e; }, options.sync_object);
+		o.sync_type = (cmts_sync_type)options.sync_object.index();
 		o.priority = options.priority;
 		o.next_ext = options.next_ext;
 		return (Result)cmts_dispatch(entry_point, &o);
