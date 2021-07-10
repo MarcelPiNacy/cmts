@@ -295,7 +295,13 @@ namespace CMTS
 			Fence fence;
 		};
 
-		Counter counter = Counter((uint64_t)std::distance(begin, end));
+		uint64_t delta;
+		if constexpr (std::is_scalar_v<I>)
+			delta = (uint64_t)(end - begin);
+		else
+			delta = (uint64_t)std::distance(begin, end);
+		Counter counter = Counter(delta);
+
 		LoopContext context = { std::forward<F>(body), begin, Fence() };
 		DispatchOptions options = {};
 		options.flags = flags;
